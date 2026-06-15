@@ -40,6 +40,14 @@
     // When on, log a small random sample of the conversions the detector got
     // right (not just corrections), so the eventual training set is balanced.
     logSamples: false,
+    // Number formatting
+    maxOrderOfMagnitude: 6, // max integer digits before switching to a bigger unit
+    decimalPlaces: 2,       // max decimals shown
+    thousandsSeparator: ",",
+    // Which metric tiers to display (global), and optional per-type overrides.
+    displayTiers: ["milli", "centi", "base", "kilo", "mega", "giga"],
+    displayScales: {}, // { Length: ["cm","m"], ... } overrides tiers for that type
+    hoverScales: {},   // { Length: ["mm","m"], ... } extra units shown in the hover panel
     useEncoder: false, // becomes meaningful once a model is provided
     encoderModelUrl: "",
   };
@@ -144,13 +152,13 @@
       { id: "f", label: "Temperature (°F → °C)", toMetric: (v) => ((v - 32) * 5) / 9, fmt: (v) => `${round(v, 1)}\u00A0°C`, rate: "°C = (°F − 32) × 5/9" },
     ] },
     { name: "mph", pattern: "(?:mph|miles?\\s+per\\s+hour|miles?\\s*/\\s*h(?:ou)?r?)", variants: [
-      { id: "mph", label: "Speed (mph → km/h)", toMetric: (v) => v * 1.609344, fmt: (v) => `${smartRound(v)}\u00A0km/h`, rate: "1 mph = 1.609 km/h" },
+      { id: "mph", label: "Speed (mph → km/h)", toMetric: (v) => v * 1.609344, fmt: (v) => fmtScale("Speed", v/3.6), rate: "1 mph = 1.609 km/h" },
     ] },
     { name: "sqft", pattern: "(?:sq\\.?\\s*ft\\.?|square\\s+feet|square\\s+foot|ft²)", variants: [
-      { id: "sqft", label: "Area (sq ft → m²)", toMetric: (v) => v * 0.09290304, fmt: (v) => `${smartRound(v)}\u00A0m²`, rate: "1 sq ft = 0.0929 m²" },
+      { id: "sqft", label: "Area (sq ft → m²)", toMetric: (v) => v * 0.09290304, fmt: (v) => fmtScale("Area", v), rate: "1 sq ft = 0.0929 m²" },
     ] },
     { name: "sqmi", pattern: "(?:sq\\.?\\s*mi\\.?|square\\s+miles?|mi²)", variants: [
-      { id: "sqmi", label: "Area (sq mi → km²)", toMetric: (v) => v * 2.589988, fmt: (v) => `${smartRound(v)}\u00A0km²`, rate: "1 sq mi = 2.59 km²" },
+      { id: "sqmi", label: "Area (sq mi → km²)", toMetric: (v) => v * 2.589988, fmt: (v) => fmtScale("Area", v*1e6), rate: "1 sq mi = 2.59 km²" },
     ] },
     { name: "cuin", pattern: "(?:cubic\\s+inch(?:es)?|cu\\.?\\s*in\\.?|in³|in\\^?3)", variants: [
       { id: "cuin", label: "Volume — cubic inches (→ cm³)", toMetric: (v) => v * 16.387064, fmt: (v) => formatVolumeCm3(v), rate: "1 cu in = 16.39 cm³" },
@@ -166,41 +174,41 @@
       { id: "impfloz", label: "Imperial fluid ounce (→ ml)", toMetric: (v) => v * 28.4131, fmt: (v) => formatVolumeMl(v), rate: "1 imp fl oz = 28.41 ml", surfaces: /^(?!.*u\.?s)/i },
     ] },
     { name: "miles", pattern: "(?:miles?|mi\\.)", variants: [
-      { id: "mi", label: "Distance (miles → km)", toMetric: (v) => v * 1.609344, fmt: (v) => `${smartRound(v)}\u00A0km`, rate: "1 mile = 1.609 km" },
+      { id: "mi", label: "Distance (miles → km)", toMetric: (v) => v * 1.609344, fmt: (v) => fmtScale("Length", v*1000), rate: "1 mile = 1.609 km" },
     ] },
     { name: "yards", pattern: "(?:yards?|yds?\\.?)", variants: [
-      { id: "yd", label: "Length (yards → m)", toMetric: (v) => v * 0.9144, fmt: (v) => `${smartRound(v)}\u00A0m`, rate: "1 yard = 0.9144 m" },
+      { id: "yd", label: "Length (yards → m)", toMetric: (v) => v * 0.9144, fmt: (v) => fmtScale("Length", v), rate: "1 yard = 0.9144 m" },
     ] },
     { name: "feet", pattern: "(?:feet|foot|ft\\.?|′)", variants: [
       { id: "ft", label: "Length (feet → m)", toMetric: (v) => v * 0.3048, fmt: (v) => formatLengthM(v), rate: "1 foot = 0.3048 m" },
     ] },
     { name: "inches", pattern: "(?:inches|inch|in\\.|″)", variants: [
-      { id: "in", label: "Length (inches → cm)", toMetric: (v) => v * 2.54, fmt: (v) => `${smartRound(v)}\u00A0cm`, rate: "1 inch = 2.54 cm" },
+      { id: "in", label: "Length (inches → cm)", toMetric: (v) => v * 2.54, fmt: (v) => fmtScale("Length", v/100), rate: "1 inch = 2.54 cm" },
     ] },
     { name: "pounds", pattern: "(?:pounds?|lbs?\\.?)", variants: [
       { id: "lb", label: "Weight — pounds (lb → kg)", toMetric: (v) => v * 0.45359237, fmt: (v) => formatMassKg(v), rate: "1 lb = 0.4536 kg" },
       { id: "gbp", label: "Money — British pounds (£)", money: true, rate: "currency, left unconverted", surfaces: /^pounds?$/i },
     ] },
     { name: "ounces", pattern: "(?:ounces?|oz\\.?)", variants: [
-      { id: "oz", label: "Weight — ounces (oz → g)", toMetric: (v) => v * 28.349523, fmt: (v) => `${smartRound(v)}\u00A0g`, rate: "1 oz = 28.35 g" },
+      { id: "oz", label: "Weight — ounces (oz → g)", toMetric: (v) => v * 28.349523, fmt: (v) => fmtScale("Mass", v), rate: "1 oz = 28.35 g" },
     ] },
     { name: "stone", pattern: "(?:stones?)", variants: [
-      { id: "st", label: "Weight (stone → kg)", toMetric: (v) => v * 6.35029318, fmt: (v) => `${smartRound(v)}\u00A0kg`, rate: "1 stone = 6.35 kg" },
+      { id: "st", label: "Weight (stone → kg)", toMetric: (v) => v * 6.35029318, fmt: (v) => fmtScale("Mass", v*1000), rate: "1 stone = 6.35 kg" },
     ] },
     { name: "gallons", pattern: "(?:(?:imp(?:erial)?|u\\.?\\s?s\\.?|us)\\s+)?(?:gallons?|gal\\.?)", variants: [
-      { id: "usgal", label: "US gallon (→ L)", toMetric: (v) => v * 3.785412, fmt: (v) => `${smartRound(v)}\u00A0L`, rate: "1 US gal = 3.785 L", surfaces: /^(?!.*imp)/i },
-      { id: "impgal", label: "Imperial gallon (→ L)", toMetric: (v) => v * 4.54609, fmt: (v) => `${smartRound(v)}\u00A0L`, rate: "1 imp gal = 4.546 L", surfaces: /^(?!.*u\.?s)/i },
+      { id: "usgal", label: "US gallon (→ L)", toMetric: (v) => v * 3.785412, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US gal = 3.785 L", surfaces: /^(?!.*imp)/i },
+      { id: "impgal", label: "Imperial gallon (→ L)", toMetric: (v) => v * 4.54609, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 imp gal = 4.546 L", surfaces: /^(?!.*u\.?s)/i },
     ] },
     { name: "quarts", pattern: "(?:(?:imp(?:erial)?|u\\.?\\s?s\\.?|us)\\s+)?(?:quarts?|qts?\\.?)", variants: [
-      { id: "usqt", label: "US quart (→ L)", toMetric: (v) => v * 0.946353, fmt: (v) => `${round(v, 2)}\u00A0L`, rate: "1 US qt = 0.946 L", surfaces: /^(?!.*imp)/i },
-      { id: "impqt", label: "Imperial quart (→ L)", toMetric: (v) => v * 1.136523, fmt: (v) => `${round(v, 2)}\u00A0L`, rate: "1 imp qt = 1.137 L", surfaces: /^(?!.*u\.?s)/i },
+      { id: "usqt", label: "US quart (→ L)", toMetric: (v) => v * 0.946353, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US qt = 0.946 L", surfaces: /^(?!.*imp)/i },
+      { id: "impqt", label: "Imperial quart (→ L)", toMetric: (v) => v * 1.136523, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 imp qt = 1.137 L", surfaces: /^(?!.*u\.?s)/i },
     ] },
     { name: "pints", pattern: "(?:(?:imp(?:erial)?|u\\.?\\s?s\\.?|us)\\s+)?(?:pints?|pts?\\.)", variants: [
       { id: "uspt", label: "US pint (→ ml)", toMetric: (v) => v * 473.176, fmt: (v) => formatVolumeMl(v), rate: "1 US pint = 473 ml", surfaces: /^(?!.*imp)/i },
       { id: "imppt", label: "Imperial pint (→ ml)", toMetric: (v) => v * 568.261, fmt: (v) => formatVolumeMl(v), rate: "1 imp pint = 568 ml", surfaces: /^(?!.*u\.?s)/i },
     ] },
     { name: "acres", pattern: "(?:acres?)", variants: [
-      { id: "ac", label: "Area (acres → ha)", toMetric: (v) => v * 0.40468564, fmt: (v) => `${smartRound(v)}\u00A0ha`, rate: "1 acre = 0.4047 ha" },
+      { id: "ac", label: "Area (acres → ha)", toMetric: (v) => v * 0.40468564, fmt: (v) => fmtScale("Area", v*1e4), rate: "1 acre = 0.4047 ha" },
     ] },
   ];
 
@@ -251,33 +259,33 @@
   // ---------------------------------------------------------------
   const REGISTRY = [
     // Length (base: cm or m via formatLengthM)
-    { id: "in", cat: "Length", name: "Inch", rank: 1, aliases: ["inch", "inches", "in", '"', "″"], toMetric: (v) => v * 2.54, fmt: (v) => `${smartRound(v)}\u00A0cm`, rate: "1 in = 2.54 cm" },
+    { id: "in", cat: "Length", name: "Inch", rank: 1, aliases: ["inch", "inches", "in", '"', "″"], toMetric: (v) => v * 2.54, fmt: (v) => fmtScale("Length", v/100), rate: "1 in = 2.54 cm" },
     { id: "ft", cat: "Length", name: "Foot", rank: 1, aliases: ["foot", "feet", "ft", "'", "′"], toMetric: (v) => v * 0.3048, fmt: (v) => formatLengthM(v), rate: "1 ft = 0.3048 m" },
-    { id: "yd", cat: "Length", name: "Yard", rank: 2, aliases: ["yard", "yards", "yd"], toMetric: (v) => v * 0.9144, fmt: (v) => `${smartRound(v)}\u00A0m`, rate: "1 yd = 0.9144 m" },
-    { id: "mi", cat: "Length", name: "Mile", rank: 1, aliases: ["mile", "miles", "mi"], toMetric: (v) => v * 1.609344, fmt: (v) => `${smartRound(v)}\u00A0km`, rate: "1 mi = 1.609 km" },
-    { id: "nmi", cat: "Length", name: "Nautical mile", rank: 4, aliases: ["nautical mile", "nmi", "nm"], toMetric: (v) => v * 1.852, fmt: (v) => `${smartRound(v)}\u00A0km`, rate: "1 nmi = 1.852 km" },
-    { id: "fathom", cat: "Length", name: "Fathom", rank: 5, aliases: ["fathom", "fathoms"], toMetric: (v) => v * 1.8288, fmt: (v) => `${smartRound(v)}\u00A0m`, rate: "1 fathom = 1.829 m" },
-    { id: "furlong", cat: "Length", name: "Furlong", rank: 6, aliases: ["furlong", "furlongs"], toMetric: (v) => v * 201.168, fmt: (v) => `${smartRound(v)}\u00A0m`, rate: "1 furlong = 201.2 m" },
-    { id: "chain", cat: "Length", name: "Chain", rank: 7, aliases: ["chain", "chains"], toMetric: (v) => v * 20.1168, fmt: (v) => `${smartRound(v)}\u00A0m`, rate: "1 chain = 20.12 m" },
-    { id: "rod", cat: "Length", name: "Rod (pole, perch)", rank: 7, aliases: ["rod", "pole", "perch"], toMetric: (v) => v * 5.0292, fmt: (v) => `${smartRound(v)}\u00A0m`, rate: "1 rod = 5.029 m" },
-    { id: "hand", cat: "Length", name: "Hand", rank: 6, aliases: ["hand", "hands"], toMetric: (v) => v * 10.16, fmt: (v) => `${smartRound(v)}\u00A0cm`, rate: "1 hand = 10.16 cm" },
-    { id: "mil", cat: "Length", name: "Mil (thou, 1/1000 inch)", rank: 8, aliases: ["mil", "thou"], toMetric: (v) => v * 0.0254, fmt: (v) => `${smartRound(v)}\u00A0mm`, rate: "1 mil = 0.0254 mm" },
-    { id: "mil_se", cat: "Length", name: "Swedish mil (10 km)", rank: 8, aliases: ["swedish mil", "scandinavian mil"], toMetric: (v) => v * 10, fmt: (v) => `${smartRound(v)}\u00A0km`, rate: "1 Swedish mil = 10 km" },
+    { id: "yd", cat: "Length", name: "Yard", rank: 2, aliases: ["yard", "yards", "yd"], toMetric: (v) => v * 0.9144, fmt: (v) => fmtScale("Length", v), rate: "1 yd = 0.9144 m" },
+    { id: "mi", cat: "Length", name: "Mile", rank: 1, aliases: ["mile", "miles", "mi"], toMetric: (v) => v * 1.609344, fmt: (v) => fmtScale("Length", v*1000), rate: "1 mi = 1.609 km" },
+    { id: "nmi", cat: "Length", name: "Nautical mile", rank: 4, aliases: ["nautical mile", "nmi", "nm"], toMetric: (v) => v * 1.852, fmt: (v) => fmtScale("Length", v*1000), rate: "1 nmi = 1.852 km" },
+    { id: "fathom", cat: "Length", name: "Fathom", rank: 5, aliases: ["fathom", "fathoms"], toMetric: (v) => v * 1.8288, fmt: (v) => fmtScale("Length", v), rate: "1 fathom = 1.829 m" },
+    { id: "furlong", cat: "Length", name: "Furlong", rank: 6, aliases: ["furlong", "furlongs"], toMetric: (v) => v * 201.168, fmt: (v) => fmtScale("Length", v), rate: "1 furlong = 201.2 m" },
+    { id: "chain", cat: "Length", name: "Chain", rank: 7, aliases: ["chain", "chains"], toMetric: (v) => v * 20.1168, fmt: (v) => fmtScale("Length", v), rate: "1 chain = 20.12 m" },
+    { id: "rod", cat: "Length", name: "Rod (pole, perch)", rank: 7, aliases: ["rod", "pole", "perch"], toMetric: (v) => v * 5.0292, fmt: (v) => fmtScale("Length", v), rate: "1 rod = 5.029 m" },
+    { id: "hand", cat: "Length", name: "Hand", rank: 6, aliases: ["hand", "hands"], toMetric: (v) => v * 10.16, fmt: (v) => fmtScale("Length", v/100), rate: "1 hand = 10.16 cm" },
+    { id: "mil", cat: "Length", name: "Mil (thou, 1/1000 inch)", rank: 8, aliases: ["mil", "thou"], toMetric: (v) => v * 0.0254, fmt: (v) => fmtScale("Length", v/1000), rate: "1 mil = 0.0254 mm" },
+    { id: "mil_se", cat: "Length", name: "Swedish mil (10 km)", rank: 8, aliases: ["swedish mil", "scandinavian mil"], toMetric: (v) => v * 10, fmt: (v) => fmtScale("Length", v*1000), rate: "1 Swedish mil = 10 km" },
 
     // Mass
-    { id: "oz", cat: "Mass", name: "Ounce", rank: 1, aliases: ["ounce", "ounces", "oz"], toMetric: (v) => v * 28.349523, fmt: (v) => `${smartRound(v)}\u00A0g`, rate: "1 oz = 28.35 g" },
+    { id: "oz", cat: "Mass", name: "Ounce", rank: 1, aliases: ["ounce", "ounces", "oz"], toMetric: (v) => v * 28.349523, fmt: (v) => fmtScale("Mass", v), rate: "1 oz = 28.35 g" },
     { id: "lb", cat: "Mass", name: "Pound (avoirdupois)", rank: 1, aliases: ["pound", "pounds", "lb", "lbs"], toMetric: (v) => v * 0.45359237, fmt: (v) => formatMassKg(v), rate: "1 lb = 0.4536 kg" },
     { id: "lb_troy", cat: "Mass", name: "Troy pound", rank: 6, aliases: ["troy pound", "troy lb", "lb t"], toMetric: (v) => v * 0.3732417216, fmt: (v) => formatMassKg(v), rate: "1 troy lb = 373.2 g" },
-    { id: "st", cat: "Mass", name: "Stone", rank: 3, aliases: ["stone", "stones"], toMetric: (v) => v * 6.35029318, fmt: (v) => `${smartRound(v)}\u00A0kg`, rate: "1 stone = 6.35 kg" },
+    { id: "st", cat: "Mass", name: "Stone", rank: 3, aliases: ["stone", "stones"], toMetric: (v) => v * 6.35029318, fmt: (v) => fmtScale("Mass", v*1000), rate: "1 stone = 6.35 kg" },
     { id: "ton_us", cat: "Mass", name: "US ton (short)", rank: 4, aliases: ["short ton", "us ton", "ton"], toMetric: (v) => v * 907.18474, fmt: (v) => formatMassT(v), rate: "1 short ton = 907.2 kg" },
     { id: "ton_long", cat: "Mass", name: "Long ton (UK)", rank: 5, aliases: ["long ton", "imperial ton"], toMetric: (v) => v * 1016.0469, fmt: (v) => formatMassT(v), rate: "1 long ton = 1016 kg" },
     { id: "tonne", cat: "Mass", name: "Metric ton (tonne)", rank: 3, aliases: ["tonne", "metric ton", "mt"], toMetric: (v) => v * 1000, fmt: (v) => formatMassT(v), rate: "1 tonne = 1000 kg" },
-    { id: "ozt", cat: "Mass", name: "Troy ounce", rank: 5, aliases: ["troy ounce", "ozt", "oz t"], toMetric: (v) => v * 31.1034768, fmt: (v) => `${smartRound(v)}\u00A0g`, rate: "1 ozt = 31.10 g" },
-    { id: "grain", cat: "Mass", name: "Grain", rank: 6, aliases: ["grain", "grains", "gr"], toMetric: (v) => v * 0.06479891, fmt: (v) => `${smartRound(v)}\u00A0g`, rate: "1 grain = 64.8 mg" },
-    { id: "dram", cat: "Mass", name: "Dram (avoirdupois)", rank: 6, aliases: ["dram", "drams"], toMetric: (v) => v * 1.7718452, fmt: (v) => `${smartRound(v)}\u00A0g`, rate: "1 dram = 1.772 g" },
-    { id: "dram_apoth", cat: "Mass", name: "Apothecary dram", rank: 7, aliases: ["apothecary dram", "drachm"], toMetric: (v) => v * 3.8879346, fmt: (v) => `${smartRound(v)}\u00A0g`, rate: "1 apoth dram = 3.888 g" },
-    { id: "cwt_us", cat: "Mass", name: "Hundredweight (US short)", rank: 7, aliases: ["hundredweight", "cwt", "short hundredweight"], toMetric: (v) => v * 45.359237, fmt: (v) => `${smartRound(v)}\u00A0kg`, rate: "1 US cwt = 45.36 kg" },
-    { id: "cwt_uk", cat: "Mass", name: "Hundredweight (UK long)", rank: 7, aliases: ["long hundredweight", "uk cwt", "imperial cwt"], toMetric: (v) => v * 50.80234544, fmt: (v) => `${smartRound(v)}\u00A0kg`, rate: "1 UK cwt = 50.80 kg" },
+    { id: "ozt", cat: "Mass", name: "Troy ounce", rank: 5, aliases: ["troy ounce", "ozt", "oz t"], toMetric: (v) => v * 31.1034768, fmt: (v) => fmtScale("Mass", v), rate: "1 ozt = 31.10 g" },
+    { id: "grain", cat: "Mass", name: "Grain", rank: 6, aliases: ["grain", "grains", "gr"], toMetric: (v) => v * 0.06479891, fmt: (v) => fmtScale("Mass", v), rate: "1 grain = 64.8 mg" },
+    { id: "dram", cat: "Mass", name: "Dram (avoirdupois)", rank: 6, aliases: ["dram", "drams"], toMetric: (v) => v * 1.7718452, fmt: (v) => fmtScale("Mass", v), rate: "1 dram = 1.772 g" },
+    { id: "dram_apoth", cat: "Mass", name: "Apothecary dram", rank: 7, aliases: ["apothecary dram", "drachm"], toMetric: (v) => v * 3.8879346, fmt: (v) => fmtScale("Mass", v), rate: "1 apoth dram = 3.888 g" },
+    { id: "cwt_us", cat: "Mass", name: "Hundredweight (US short)", rank: 7, aliases: ["hundredweight", "cwt", "short hundredweight"], toMetric: (v) => v * 45.359237, fmt: (v) => fmtScale("Mass", v*1000), rate: "1 US cwt = 45.36 kg" },
+    { id: "cwt_uk", cat: "Mass", name: "Hundredweight (UK long)", rank: 7, aliases: ["long hundredweight", "uk cwt", "imperial cwt"], toMetric: (v) => v * 50.80234544, fmt: (v) => fmtScale("Mass", v*1000), rate: "1 UK cwt = 50.80 kg" },
 
     // Volume
     { id: "usfloz", cat: "Volume", name: "US fluid ounce (customary)", rank: 1, aliases: ["fl oz", "fluid ounce", "us fl oz", "floz"], toMetric: (v) => v * 29.5735, fmt: (v) => formatVolumeMl(v), rate: "1 US fl oz = 29.57 ml" },
@@ -289,37 +297,37 @@
     { id: "cup_legal", cat: "Volume", name: "US legal cup (240 ml)", rank: 4, aliases: ["legal cup", "us legal cup"], toMetric: (v) => v * 240, fmt: (v) => formatVolumeMl(v), rate: "1 legal cup = 240 ml" },
     { id: "cup_metric", cat: "Volume", name: "Metric cup (250 ml)", rank: 4, aliases: ["metric cup"], toMetric: (v) => v * 250, fmt: (v) => formatVolumeMl(v), rate: "1 metric cup = 250 ml" },
     { id: "uspt", cat: "Volume", name: "US pint", rank: 2, aliases: ["pint", "pints", "us pint", "pt"], toMetric: (v) => v * 473.176, fmt: (v) => formatVolumeMl(v), rate: "1 US pint = 473 ml" },
-    { id: "usqt", cat: "Volume", name: "US quart", rank: 2, aliases: ["quart", "quarts", "us quart", "qt"], toMetric: (v) => v * 0.946353, fmt: (v) => `${round(v, 2)}\u00A0L`, rate: "1 US qt = 0.946 L" },
-    { id: "usgal", cat: "Volume", name: "US gallon", rank: 1, aliases: ["gallon", "gallons", "us gallon", "gal"], toMetric: (v) => v * 3.785412, fmt: (v) => `${smartRound(v)}\u00A0L`, rate: "1 US gal = 3.785 L" },
+    { id: "usqt", cat: "Volume", name: "US quart", rank: 2, aliases: ["quart", "quarts", "us quart", "qt"], toMetric: (v) => v * 0.946353, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US qt = 0.946 L" },
+    { id: "usgal", cat: "Volume", name: "US gallon", rank: 1, aliases: ["gallon", "gallons", "us gallon", "gal"], toMetric: (v) => v * 3.785412, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US gal = 3.785 L" },
     { id: "imppt", cat: "Volume", name: "Imperial pint", rank: 3, aliases: ["imperial pint", "uk pint"], toMetric: (v) => v * 568.261, fmt: (v) => formatVolumeMl(v), rate: "1 imp pint = 568 ml" },
-    { id: "impqt", cat: "Volume", name: "Imperial quart", rank: 4, aliases: ["imperial quart", "uk quart"], toMetric: (v) => v * 1.136523, fmt: (v) => `${round(v, 2)}\u00A0L`, rate: "1 imp qt = 1.137 L" },
-    { id: "impgal", cat: "Volume", name: "Imperial gallon", rank: 2, aliases: ["imperial gallon", "uk gallon"], toMetric: (v) => v * 4.54609, fmt: (v) => `${smartRound(v)}\u00A0L`, rate: "1 imp gal = 4.546 L" },
+    { id: "impqt", cat: "Volume", name: "Imperial quart", rank: 4, aliases: ["imperial quart", "uk quart"], toMetric: (v) => v * 1.136523, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 imp qt = 1.137 L" },
+    { id: "impgal", cat: "Volume", name: "Imperial gallon", rank: 2, aliases: ["imperial gallon", "uk gallon"], toMetric: (v) => v * 4.54609, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 imp gal = 4.546 L" },
     { id: "usdrypt", cat: "Volume", name: "US dry pint", rank: 6, aliases: ["dry pint", "us dry pint"], toMetric: (v) => v * 550.610, fmt: (v) => formatVolumeMl(v), rate: "1 US dry pint = 551 ml" },
-    { id: "usdryqt", cat: "Volume", name: "US dry quart", rank: 6, aliases: ["dry quart", "us dry quart"], toMetric: (v) => v * 1.101221, fmt: (v) => `${round(v, 2)}\u00A0L`, rate: "1 US dry qt = 1.101 L" },
+    { id: "usdryqt", cat: "Volume", name: "US dry quart", rank: 6, aliases: ["dry quart", "us dry quart"], toMetric: (v) => v * 1.101221, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US dry qt = 1.101 L" },
     { id: "cuin", cat: "Volume", name: "Cubic inch", rank: 2, aliases: ["cubic inch", "cu in", "in³"], toMetric: (v) => v * 16.387064, fmt: (v) => formatVolumeCm3(v), rate: "1 cu in = 16.39 cm³" },
     { id: "cuft", cat: "Volume", name: "Cubic foot", rank: 2, aliases: ["cubic foot", "cubic feet", "cu ft", "ft³"], toMetric: (v) => v * 0.0283168466, fmt: (v) => formatVolumeM3(v), rate: "1 cu ft = 0.0283 m³" },
     { id: "cuyd", cat: "Volume", name: "Cubic yard", rank: 4, aliases: ["cubic yard", "cu yd", "yd³"], toMetric: (v) => v * 0.764554858, fmt: (v) => formatVolumeM3(v), rate: "1 cu yd = 0.765 m³" },
-    { id: "bushel", cat: "Volume", name: "US bushel", rank: 6, aliases: ["bushel", "bushels", "us bushel"], toMetric: (v) => v * 35.2391, fmt: (v) => `${round(v, 2)}\u00A0L`, rate: "1 US bushel = 35.24 L" },
-    { id: "bushel_imp", cat: "Volume", name: "Imperial bushel", rank: 7, aliases: ["imperial bushel", "uk bushel"], toMetric: (v) => v * 36.36872, fmt: (v) => `${round(v, 2)}\u00A0L`, rate: "1 imp bushel = 36.37 L" },
-    { id: "peck", cat: "Volume", name: "US peck", rank: 7, aliases: ["peck", "pecks"], toMetric: (v) => v * 8.80977, fmt: (v) => `${round(v, 2)}\u00A0L`, rate: "1 peck = 8.810 L" },
+    { id: "bushel", cat: "Volume", name: "US bushel", rank: 6, aliases: ["bushel", "bushels", "us bushel"], toMetric: (v) => v * 35.2391, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US bushel = 35.24 L" },
+    { id: "bushel_imp", cat: "Volume", name: "Imperial bushel", rank: 7, aliases: ["imperial bushel", "uk bushel"], toMetric: (v) => v * 36.36872, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 imp bushel = 36.37 L" },
+    { id: "peck", cat: "Volume", name: "US peck", rank: 7, aliases: ["peck", "pecks"], toMetric: (v) => v * 8.80977, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 peck = 8.810 L" },
     { id: "gill", cat: "Volume", name: "US gill", rank: 7, aliases: ["gill", "gills"], toMetric: (v) => v * 118.294, fmt: (v) => formatVolumeMl(v), rate: "1 gill = 118.3 ml" },
-    { id: "bbl_oil", cat: "Volume", name: "Oil barrel", rank: 5, aliases: ["barrel", "barrels", "bbl"], toMetric: (v) => v * 158.987, fmt: (v) => `${smartRound(v)}\u00A0L`, rate: "1 barrel = 159.0 L" },
+    { id: "bbl_oil", cat: "Volume", name: "Oil barrel", rank: 5, aliases: ["barrel", "barrels", "bbl"], toMetric: (v) => v * 158.987, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 barrel = 159.0 L" },
 
     // Area
     { id: "sqft", cat: "Area", name: "Square foot", rank: 1, aliases: ["square foot", "square feet", "sq ft", "ft²"], toMetric: (v) => v * 0.09290304, fmt: (v) => formatAreaM2(v), rate: "1 sq ft = 0.0929 m²" },
     { id: "sqin", cat: "Area", name: "Square inch", rank: 2, aliases: ["square inch", "sq in", "in²"], toMetric: (v) => v * 0.00064516, fmt: (v) => formatAreaM2(v), rate: "1 sq in = 6.452 cm²" },
     { id: "sqyd", cat: "Area", name: "Square yard", rank: 2, aliases: ["square yard", "sq yd", "yd²"], toMetric: (v) => v * 0.83612736, fmt: (v) => formatAreaM2(v), rate: "1 sq yd = 0.8361 m²" },
-    { id: "sqmi", cat: "Area", name: "Square mile", rank: 2, aliases: ["square mile", "sq mi", "mi²"], toMetric: (v) => v * 2.589988, fmt: (v) => `${smartRound(v)}\u00A0km²`, rate: "1 sq mi = 2.59 km²" },
-    { id: "ac", cat: "Area", name: "Acre", rank: 1, aliases: ["acre", "acres"], toMetric: (v) => v * 0.40468564, fmt: (v) => `${smartRound(v)}\u00A0ha`, rate: "1 acre = 0.4047 ha" },
+    { id: "sqmi", cat: "Area", name: "Square mile", rank: 2, aliases: ["square mile", "sq mi", "mi²"], toMetric: (v) => v * 2.589988, fmt: (v) => fmtScale("Area", v*1e6), rate: "1 sq mi = 2.59 km²" },
+    { id: "ac", cat: "Area", name: "Acre", rank: 1, aliases: ["acre", "acres"], toMetric: (v) => v * 0.40468564, fmt: (v) => fmtScale("Area", v*1e4), rate: "1 acre = 0.4047 ha" },
 
     // Temperature (affine; rate is a formula)
     { id: "f", cat: "Temperature", name: "Fahrenheit", rank: 1, aliases: ["fahrenheit", "°f", "f"], toMetric: (v) => ((v - 32) * 5) / 9, fmt: (v) => `${round(v, 1)}\u00A0°C`, rate: "°C = (°F − 32) × 5/9" },
     { id: "rankine", cat: "Temperature", name: "Rankine", rank: 6, aliases: ["rankine", "°r"], toMetric: (v) => ((v - 491.67) * 5) / 9, fmt: (v) => `${round(v, 1)}\u00A0°C`, rate: "°C = (°R − 491.67) × 5/9" },
 
     // Speed
-    { id: "mph", cat: "Speed", name: "Miles per hour", rank: 1, aliases: ["mph", "miles per hour", "mi/h"], toMetric: (v) => v * 1.609344, fmt: (v) => `${smartRound(v)}\u00A0km/h`, rate: "1 mph = 1.609 km/h" },
-    { id: "knot", cat: "Speed", name: "Knot", rank: 3, aliases: ["knot", "knots", "kn", "kt"], toMetric: (v) => v * 1.852, fmt: (v) => `${smartRound(v)}\u00A0km/h`, rate: "1 knot = 1.852 km/h" },
-    { id: "fps", cat: "Speed", name: "Feet per second", rank: 4, aliases: ["fps", "feet per second", "ft/s"], toMetric: (v) => v * 1.09728, fmt: (v) => `${smartRound(v)}\u00A0km/h`, rate: "1 ft/s = 1.097 km/h" },
+    { id: "mph", cat: "Speed", name: "Miles per hour", rank: 1, aliases: ["mph", "miles per hour", "mi/h"], toMetric: (v) => v * 1.609344, fmt: (v) => fmtScale("Speed", v/3.6), rate: "1 mph = 1.609 km/h" },
+    { id: "knot", cat: "Speed", name: "Knot", rank: 3, aliases: ["knot", "knots", "kn", "kt"], toMetric: (v) => v * 1.852, fmt: (v) => fmtScale("Speed", v/3.6), rate: "1 knot = 1.852 km/h" },
+    { id: "fps", cat: "Speed", name: "Feet per second", rank: 4, aliases: ["fps", "feet per second", "ft/s"], toMetric: (v) => v * 1.09728, fmt: (v) => fmtScale("Speed", v/3.6), rate: "1 ft/s = 1.097 km/h" },
 
     // Energy (base: J)
     { id: "btu", cat: "Energy", name: "BTU", rank: 1, aliases: ["btu", "british thermal unit"], toMetric: (v) => v * 1055.06, fmt: (v) => formatEnergy(v), rate: "1 BTU = 1055 J" },
@@ -485,8 +493,142 @@
       if (best > 0) scored.push({ e, s: best });
     }
     scored.sort((a, b) => (b.s - a.s) || (a.e.rank - b.e.rank) || a.e.name.localeCompare(b.e.name));
-    return scored.slice(0, 6).map((x) => x.e);
+    // Keep similar units together: when a match belongs to a cluster (the same
+    // groups the underline menu shows), pull in its siblings, adjacent and in
+    // cluster order. Mirrors the hover panel so the picker is consistent.
+    const out = [];
+    const seen = new Set();
+    for (const x of scored) {
+      const cl = ALT_BY_ID[x.e.id];
+      const ids = cl || [x.e.id];
+      for (const id of ids) {
+        if (seen.has(id)) continue;
+        const e = REG_BY_ID[id];
+        if (!e) continue;
+        seen.add(id);
+        out.push(e);
+      }
+      if (out.length >= 8) break;
+    }
+    return out.slice(0, 8);
   }
+
+  // --- Metric scale engine -------------------------------------------------
+  // Each category has a canonical base unit and a ladder of metric scales
+  // (size of each unit in base units). The renderer picks the enabled scale
+  // that reads most simply: no leading "0.x", fewest decimals, then fewest
+  // integer digits, capped at maxOrderOfMagnitude integer digits. So 0.62 m
+  // shows as "62 cm", 551 ml stays "551 ml" (not "0.55 L").
+  const SCALES = {
+    Length:   [["mm", 1e-3], ["cm", 1e-2], ["m", 1], ["km", 1e3]],         // base m
+    Mass:     [["mg", 1e-3], ["g", 1], ["kg", 1e3], ["t", 1e6]],           // base g
+    Volume:   [["ml", 1], ["L", 1e3], ["m³", 1e6]],                        // base ml
+    Area:     [["cm²", 1e-4], ["m²", 1], ["km²", 1e6]],                    // base m²
+    Speed:    [["m/s", 1], ["km/h", 1 / 3.6]],                             // base m/s
+    Energy:   [["J", 1], ["kJ", 1e3], ["MJ", 1e6], ["GJ", 1e9]],           // base J
+    Power:    [["W", 1], ["kW", 1e3], ["MW", 1e6], ["GW", 1e9]],           // base W
+    Pressure: [["Pa", 1], ["kPa", 1e3], ["MPa", 1e6], ["GPa", 1e9]],       // base Pa
+  };
+  // Generic SI tier each scale belongs to, so one global prefix choice can
+  // apply across every measurement type (advanced UI can override per type).
+  const TIER_OF = {
+    Length:   { mm: "milli", cm: "centi", m: "base", km: "kilo" },
+    Mass:     { mg: "milli", g: "base", kg: "kilo", t: "mega" },
+    Volume:   { ml: "milli", L: "base", "m³": "kilo" },
+    Area:     { "cm²": "centi", "m²": "base", "km²": "kilo" },
+    Speed:    { "m/s": "base", "km/h": "kilo" },
+    Energy:   { J: "base", kJ: "kilo", MJ: "mega", GJ: "giga" },
+    Power:    { W: "base", kW: "kilo", MW: "mega", GW: "giga" },
+    Pressure: { Pa: "base", kPa: "kilo", MPa: "mega", GPa: "giga" },
+  };
+  function clampInt(x, lo, hi, dflt) {
+    x = parseInt(x, 10);
+    if (!isFinite(x)) return dflt;
+    return Math.max(lo, Math.min(hi, x));
+  }
+  function enabledScales(cat) {
+    const all = SCALES[cat];
+    const ov = settings.displayScales && settings.displayScales[cat];
+    if (ov && ov.length) {
+      const f = all.filter((u) => ov.indexOf(u[0]) >= 0);
+      if (f.length) return f;
+    }
+    const tiers = settings.displayTiers;
+    if (tiers && tiers.length) {
+      const f = all.filter((u) => tiers.indexOf(TIER_OF[cat][u[0]]) >= 0);
+      if (f.length) return f;
+    }
+    return all;
+  }
+  // Render a base value in one specific scale (for the hover "also in" list).
+  function renderInScale(cat, base, sym) {
+    const def = SCALES[cat];
+    if (!def) return null;
+    const u = def.find((x) => x[0] === sym);
+    if (!u) return null;
+    const maxDec = clampInt(settings.decimalPlaces, 0, 6, 2);
+    const sep = settings.thousandsSeparator != null ? settings.thousandsSeparator : ",";
+    return fmtNum(base / u[1], maxDec, sep) + "\u00A0" + sym;
+  }
+  // Derive (category, base-units-per-1-input-unit) for any unit entry purely
+  // from its own fmt output, so we can show the value in other metric scales
+  // without tagging every unit. Returns null for non-scale units (°C, money).
+  function unitBaseInfo(entry) {
+    if (!entry || typeof entry.toMetric !== "function" || typeof entry.fmt !== "function") return null;
+    const saved = settings.decimalPlaces;
+    settings.decimalPlaces = 6; // parse at high precision
+    let s;
+    try { s = entry.fmt(entry.toMetric(1)); } finally { settings.decimalPlaces = saved; }
+    const m = /^(-?[\d.,]+)\u00A0?(.+)$/.exec(s || "");
+    if (!m) return null;
+    const num = parseFloat(m[1].replace(/,/g, ""));
+    const sym = m[2].trim();
+    for (const cat of Object.keys(SCALES)) {
+      const u = SCALES[cat].find((x) => x[0] === sym);
+      if (u) return { cat, base1: num * u[1] };
+    }
+    return null;
+  }
+  function groupInt(s, sep) { return sep ? s.replace(/\B(?=(\d{3})+(?!\d))/g, sep) : s; }
+  function fmtNum(v, maxDec, sep) {
+    const neg = v < 0;
+    let s = Math.abs(v).toFixed(maxDec);
+    if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
+    const parts = s.split(".");
+    parts[0] = groupInt(parts[0], sep);
+    return (neg ? "-" : "") + (parts[1] ? parts[0] + "." + parts[1] : parts[0]);
+  }
+  function betterScore(a, b) {
+    if (!b) return true;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i];
+    return false;
+  }
+  function fmtScale(cat, base) {
+    const def = SCALES[cat];
+    if (!def) return String(base);
+    const maxDec = clampInt(settings.decimalPlaces, 0, 6, 2);
+    const maxOOM = clampInt(settings.maxOrderOfMagnitude, 1, 12, 6);
+    const sep = settings.thousandsSeparator != null ? settings.thousandsSeparator : ",";
+    const units = enabledScales(cat);
+    let bestSym = null, bestScore = null, bestV = 0;
+    let fbSym = null, fbScore = null, fbV = 0;
+    for (const [sym, f] of units) {
+      const v = base / f;
+      const rounded = Number(Math.abs(v).toFixed(maxDec));
+      const intDigits = rounded >= 1 ? String(Math.floor(rounded)).length : 0;
+      const leadingZero = rounded < 1 ? 1 : 0;
+      let ds = rounded.toFixed(maxDec).split(".")[1] || "";
+      ds = ds.replace(/0+$/, "");
+      const score = [intDigits > maxOOM ? 1 : 0, leadingZero, intDigits, ds.length, -f];
+      if (betterScore(score, fbScore)) { fbScore = score; fbSym = sym; fbV = v; }
+      if (rounded === 0) continue;
+      if (betterScore(score, bestScore)) { bestScore = score; bestSym = sym; bestV = v; }
+    }
+    const sym = bestSym || fbSym || units[units.length - 1][0];
+    const v = bestSym ? bestV : fbV;
+    return fmtNum(v, maxDec, sep) + "\u00A0" + sym;
+  }
+  // --- end scale engine ----------------------------------------------------
 
   function round(v, d) {
     const f = Math.pow(10, d);
@@ -498,21 +640,16 @@
     if (a >= 10) return round(v, 1);
     return round(v, 2);
   }
-  function formatLengthM(m) { return Math.abs(m) < 1 ? `${smartRound(m * 100)}\u00A0cm` : `${smartRound(m)}\u00A0m`; }
-  function formatMassKg(kg) { return Math.abs(kg) < 1 ? `${smartRound(kg * 1000)}\u00A0g` : `${smartRound(kg)}\u00A0kg`; }
-  function formatVolumeMl(ml) { return Math.abs(ml) >= 1000 ? `${round(ml / 1000, 2)}\u00A0L` : `${smartRound(ml)}\u00A0ml`; }
-  function formatVolumeCm3(cm3) { return Math.abs(cm3) >= 1000 ? `${round(cm3 / 1000, 2)}\u00A0L` : `${smartRound(cm3)}\u00A0cm³`; }
-  function formatVolumeM3(m3) { return Math.abs(m3) < 1 ? `${smartRound(m3 * 1000)}\u00A0L` : `${round(m3, 2)}\u00A0m³`; }
-  function formatMassT(kg) { return Math.abs(kg) >= 1000 ? `${round(kg / 1000, 2)}\u00A0t` : `${smartRound(kg)}\u00A0kg`; }
-  function formatAreaM2(m2) { return Math.abs(m2) < 1 ? `${smartRound(m2 * 10000)}\u00A0cm²` : `${round(m2, 2)}\u00A0m²`; }
-  function formatEnergy(j) {
-    const a = Math.abs(j);
-    if (a >= 1e6) return `${round(j / 1e6, 2)}\u00A0MJ`;
-    if (a >= 1000) return `${round(j / 1000, 2)}\u00A0kJ`;
-    return `${round(j, 1)}\u00A0J`;
-  }
-  function formatPressure(kpa) { return Math.abs(kpa) >= 1000 ? `${round(kpa / 1000, 2)}\u00A0MPa` : `${round(kpa, 2)}\u00A0kPa`; }
-  function formatPower(w) { return Math.abs(w) >= 1000 ? `${round(w / 1000, 2)}\u00A0kW` : `${round(w, 1)}\u00A0W`; }
+  function formatLengthM(m) { return fmtScale("Length", m); }
+  function formatMassKg(kg) { return fmtScale("Mass", kg * 1000); }
+  function formatVolumeMl(ml) { return fmtScale("Volume", ml); }
+  function formatVolumeCm3(cm3) { return fmtScale("Volume", cm3); }
+  function formatVolumeM3(m3) { return fmtScale("Volume", m3 * 1e6); }
+  function formatMassT(kg) { return fmtScale("Mass", kg * 1000); }
+  function formatAreaM2(m2) { return fmtScale("Area", m2); }
+  function formatEnergy(j) { return fmtScale("Energy", j); }
+  function formatPressure(kpa) { return fmtScale("Pressure", kpa * 1000); }
+  function formatPower(w) { return fmtScale("Power", w); }
 
   function parseValue(intPart, decPart, fracNum, fracDen) {
     let v = parseFloat(intPart.replace(/,/g, ""));
@@ -529,6 +666,19 @@
     "(US\\$|CA\\$|A\\$|NZ\\$|HK\\$|[$€£¥])\\s?(\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.(\\d{1,2}))?(?!\\d)",
     "g"
   );
+
+  // Parse a price out of plain text (currency symbol + amount). Returns
+  // {priceStr, value, symbol} or null. Used for the picker preview/indicator.
+  function parsePriceText(text) {
+    const t = (text || "").replace(/\s+/g, " ").trim();
+    PRICE_RE.lastIndex = 0;
+    let m = PRICE_RE.exec(t);
+    if (!m) { PRICE_RE.lastIndex = 0; m = PRICE_RE.exec(t.replace(/\s+/g, "")); }
+    if (!m) return null;
+    const value = parseFloat(m[2].replace(/,/g, "")) + (m[3] ? parseFloat("0." + m[3]) : 0);
+    if (!isFinite(value)) return null;
+    return { priceStr: m[0], value, symbol: m[1] };
+  }
 
   // Round a price UP to the next whole unit, but only when it is within the
   // configured cents threshold of that whole unit (or the user forced it).
@@ -1125,7 +1275,8 @@
   // User selected a price (possibly in odd/split markup) and asked to round it.
   // Replaces the entire selected range with a single rounded value, using the
   // most reliable price found in the selection (a contiguous copy if present).
-  function forcePriceFromSelection(range) {
+  function forcePriceFromSelection(range, force) {
+    if (force === undefined) force = true;
     if (!range || range.collapsed) return { ok: false, reason: "empty" };
 
     let priceStr = null;
@@ -1166,7 +1317,7 @@
     }
     if (value === null || !isFinite(value)) return { ok: false, reason: "no_value" };
 
-    const rounded = roundedPriceValue(value, true); // forced: always round up
+    const rounded = roundedPriceValue(value, force); // forced: always round up
     const intVal = rounded === null ? Math.round(value) : rounded;
     const disp = symbol.replace(/\s+$/, "") + intVal.toLocaleString("en-US");
 
@@ -1187,6 +1338,26 @@
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
+    return { ok: true };
+  }
+
+  // Re-mark an existing conversion span as a price (from the picker).
+  function reconvertSpanAsPrice(span, force) {
+    if (force === undefined) force = false;
+    const original = span.getAttribute("data-original") || "";
+    const p = parsePriceText(original);
+    if (!p) return { ok: false, reason: "no_price" };
+    const rounded = roundedPriceValue(p.value, force);
+    const cents = Math.round((p.value - Math.floor(p.value)) * 100);
+    const sym = p.symbol.replace(/\s+$/, "");
+    const disp = (rounded === null && cents !== 0)
+      ? sym + p.value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : sym + (rounded === null ? Math.round(p.value) : rounded).toLocaleString("en-US");
+    span.textContent = disp;
+    span.setAttribute("data-kind", "price");
+    span.removeAttribute("data-variant");
+    span.setAttribute("aria-label", `${disp}, originally ${original}, activate to review`);
+    logTrainingExample("price", original, original);
     return { ok: true };
   }
 
@@ -1379,6 +1550,17 @@
       addLine("mg-pop-line", original + "  →  " + span.textContent);
       if (curV && typeof curV.toMetric === "function") {
         addLine("mg-pop-rate", "Rate: " + rateFor(spanValue != null ? spanValue : (c ? c.value : 1), curV));
+      }
+
+      // "Also in" — value rendered in the user's chosen extra hover units.
+      const bi = unitBaseInfo(curV);
+      if (bi && settings.hoverScales && settings.hoverScales[bi.cat] && spanValue != null) {
+        const dispSym = (/\u00A0?([^\u00A0\d.,-]+)$/.exec(span.textContent) || [])[1];
+        const extras = settings.hoverScales[bi.cat]
+          .filter((sym) => sym !== (dispSym ? dispSym.trim() : ""))
+          .map((sym) => renderInScale(bi.cat, bi.base1 * spanValue, sym))
+          .filter(Boolean);
+        if (extras.length) addLine("mg-pop-rate", "Also: " + extras.join("  ·  "));
       }
 
       if (!(c && c.dim)) {
@@ -1633,6 +1815,8 @@
     hidePanel();
     openPicker({
       seedText: span.getAttribute("data-original") || "",
+      span: span,
+      currentId: span.getAttribute("data-variant") || null,
       apply: (id) => { reconvertSpan(span, id); hidePanel(); showPanelFor(span); },
     });
   }
@@ -1645,9 +1829,11 @@
     if (range) { if (range.collapsed) return; pickerRange = range.cloneRange(); }
     else pickerRange = null;
     const applyChoice = opts.apply || ((id) => applyConvertAs(pickerRange, id));
+    const currentId = opts.currentId || null;
     const selText = (opts.seedText != null ? opts.seedText : (range ? range.toString() : "")).replace(/\s+/g, " ").trim();
     const numMatch = selText.match(/-?\d[\d,]*(?:\.\d+)?/);
     const value = numMatch ? parseFloat(numMatch[0].replace(/,/g, "")) : null;
+    const priceInfo = parsePriceText(selText);
 
     const overlay = document.createElement("div");
     overlay.className = "mg-picker-overlay";
@@ -1760,6 +1946,14 @@
 
       row.appendChild(left);
       row.appendChild(right);
+      if (currentId && e.id === currentId) {
+        row.classList.add("mg-pk-row-on");
+        row.setAttribute("aria-current", "true");
+        const chk = document.createElement("span");
+        chk.className = "mg-pk-check";
+        chk.textContent = "\u2713";
+        nm.insertBefore(chk, nm.firstChild);
+      }
       row.addEventListener("click", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -1776,16 +1970,62 @@
       return h;
     };
 
+    // "Treat as price": respects the rounding threshold so the indicator can
+    // honestly say whether the value will change.
+    const doPrice = () => {
+      if (pickerRange) forcePriceFromSelection(pickerRange, false);
+      else if (opts.span) { reconvertSpanAsPrice(opts.span, false); hidePanel(); showPanelFor(opts.span); }
+      closePicker();
+    };
+    const makePriceRow = () => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "mg-pk-row mg-pk-pricerow";
+      row.setAttribute(UI_ATTR, "1");
+      const left = document.createElement("span");
+      left.className = "mg-pk-name";
+      const nm = document.createElement("span");
+      nm.className = "mg-pk-nm";
+      nm.textContent = "Treat as price";
+      const tag = document.createElement("span");
+      tag.className = "mg-pk-cat";
+      const cents = Math.round((priceInfo.value - Math.floor(priceInfo.value)) * 100);
+      const willRound = roundedPriceValue(priceInfo.value, false) !== null;
+      tag.textContent = willRound
+        ? "rounds up"
+        : (cents === 0 ? "already whole" : "not rounded (gap over " + settings.priceRoundCents + "\u00A2)");
+      left.appendChild(nm);
+      left.appendChild(tag);
+      const right = document.createElement("span");
+      right.className = "mg-pk-prev";
+      const sym = priceInfo.symbol.replace(/\s+$/, "");
+      const from = sym + priceInfo.value.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 });
+      right.textContent = willRound
+        ? from + " \u2192 " + sym + (Math.floor(priceInfo.value) + 1).toLocaleString("en-US")
+        : from;
+      row.appendChild(left);
+      row.appendChild(right);
+      row.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); doPrice(); });
+      return row;
+    };
+
     const renderList = () => {
       list.textContent = "";
       hideTip();
       const q = search.value;
+      // Treat-as-price option (when the selection looks like a price).
+      if (priceInfo && !q.trim()) {
+        list.appendChild(sectionHead("Price"));
+        list.appendChild(makePriceRow());
+      }
       // Suggestions: only in the default All view with no active search.
       let suggested = [];
       if (activeCat === "All" && !q.trim()) suggested = suggestionsFor(hint);
       if (suggested.length) {
         list.appendChild(sectionHead("Suggestions"));
         suggested.forEach((e) => list.appendChild(makeRow(e)));
+        list.appendChild(sectionHead("All units"));
+      } else if (priceInfo && !q.trim()) {
         list.appendChild(sectionHead("All units"));
       }
       const suggestedIds = new Set(suggested.map((e) => e.id));

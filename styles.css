@@ -206,6 +206,11 @@
 .mg-pk-cat { color: var(--mg-muted); font-size: 11px; }
 .mg-pk-prev { color: var(--mg-accent); font-weight: 600; white-space: nowrap; }
 .mg-pk-empty { padding: 16px; color: var(--mg-muted); }
+.mg-pk-row-on { background: var(--mg-hover); box-shadow: inset 3px 0 0 var(--mg-accent); }
+.mg-pk-row-on .mg-pk-nm { font-weight: 700; }
+.mg-pk-check { color: var(--mg-accent); font-weight: 700; }
+.mg-pk-pricerow .mg-pk-nm { font-weight: 600; }
+.mg-pk-pricerow .mg-pk-cat { color: var(--mg-accent); }
 
 /* Picker: suggestions section, info badge, tooltip */
 .mg-pk-section {
