@@ -9,6 +9,32 @@ A Firefox extension (desktop and Android) that converts US/imperial units to met
 - Lets you correct anything: hover a converted value to pick a different interpretation (e.g. the three kinds of fluid ounce), mark a false positive, or browse the full unit list.
 - Works on pages that split a number and its unit across elements, and on offscreen/duplicated price markup (e.g. Amazon).
 
+## Install (preview)
+
+Metric Glance isn't on the add-on store yet. It's signed by Mozilla and installs as a file. Needs **Firefox 140+** (desktop) or **Firefox for Android 142+**.
+
+### Desktop (Windows, Mac, Linux)
+
+1. Download the latest `.xpi` from the [Releases page](https://github.com/ja-ortiz-uniandes/metric-glance/releases).
+2. Open Firefox and go to `about:addons`.
+3. Click the gear icon (top right) and choose **Install Add-on From File**.
+4. Select the `.xpi` you downloaded and accept the prompt.
+
+That's it. The add-on stays installed across restarts.
+
+### Firefox for Android
+
+1. Open the `.xpi` link from the [Releases page](https://github.com/ja-ortiz-uniandes/metric-glance/releases) in Firefox for Android.
+2. Tap it and confirm **Add to Firefox**.
+
+iPhone/iPad are not supported: Firefox on iOS can't run extensions (an Apple restriction).
+
+### Using it
+
+Converted values get a dotted underline. Hover (desktop) or tap (mobile) to see the original, switch units, or fix a mistake. Press **Ctrl+Alt+M** (**Cmd+Alt+M** on Mac) to open the unit picker for selected text.
+
+> Preview build: no auto-update. Grab new versions from Releases when posted.
+
 ## How it works
 
 Detection today is a **deterministic regex engine**, not a model. For each block of text the scanner concatenates its inline content into one string (so a number and a linked or element-split unit are seen together), runs unit/price/dimension regexes over it, applies your settings and correction rules, and resolves overlaps. All arithmetic comes from a fixed conversion table, so a detection mistake can only mis-mark a span, never produce wrong math.
