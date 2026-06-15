@@ -1,0 +1,6 @@
+# Local dev / test artifacts
+node_modules/
+package.json
+package-lock.json
+*.zip
+.DS_Store

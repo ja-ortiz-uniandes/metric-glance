@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Metric Glance test page</title>
+  <style>
+    body { font: 17px/1.6 -apple-system, system-ui, sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; color: #1f2430; }
+    h2 { margin-top: 28px; font-size: 18px; }
+    .card { background: #f4f5f8; border-radius: 8px; padding: 12px 16px; margin: 8px 0; }
+    button { font: inherit; padding: 8px 12px; border: 1px solid #c6cad3; border-radius: 6px; background: #fff; cursor: pointer; }
+    code { background: #eceef3; padding: 1px 5px; border-radius: 4px; }
+    .note { color: #5a6172; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Metric Glance test page</h1>
+  <p class="note">Load the extension, then reload this page. Converted values get a dotted underline.</p>
+
+  <h2>1. Units should convert</h2>
+  <div class="card">
+    The trail is 12 miles long, climbs 1,200 feet, and the sign is 18 inches wide.
+    She ran it in shoes weighing 11 oz, carrying 5 lbs of water at 75 °F,
+    driving 60 mph to get there. The lot covers 2.5 acres and the tank holds 12 gallons.
+    A board 5 1/2 inches thick. He weighs 13 stone.
+  </div>
+
+  <h2>1c. Units inside hyperlinks / split across elements</h2>
+  <div class="card">
+    A meter is 39.37 <a href="https://en.wikipedia.org/wiki/Inch">inches</a>,
+    the trail is 5 <a href="https://en.wikipedia.org/wiki/Mile">miles</a> long,
+    and the limit is 60 <a href="https://en.wikipedia.org/wiki/Miles_per_hour">mph</a>.
+    <p class="note">These should convert even though the unit word is a link.
+      The converted value uses a dashed blue underline (it had hidden
+      formatting). Hover/tap it: the panel shows the original text in a code box
+      with the link intact. "Mark as incorrect" restores the original link.</p>
+  </div>
+
+  <h2>1b. Correctness + ambiguous units (hover/tap to see rate and options)</h2>
+  <div class="card">
+    The stone of 14 pounds (6.35029318 kg) for body weight; a barrel of 196 pounds.
+    He owes 14 pounds for 2 gallons of cider and 3 pints of milk.
+    <p class="note">14 pounds should read 6.35 kg, 196 pounds should read 88.9 kg.
+      Hover/tap any of them: the panel shows the rate, and for ambiguous ones
+      (pounds, gallons, pints) lets you switch interpretation, e.g. mark
+      "14 pounds" as British money so it stops converting.</p>
+  </div>
+
+  <h2>2. Prices round UP to the next whole amount (cents threshold)</h2>
+  <div class="card">
+    The laptop is $1,299.99, the mouse is $24.99, a snack is $1.95,
+    something is $2.50, and another is $2.01. A round price: $500.00.
+    <p class="note">At the default 50¢: $1,299.99&rarr;$1,300, $24.99&rarr;$25,
+      $1.95&rarr;$2; but $2.50, $2.01 and $500.00 are left alone. Raise the
+      threshold toward 99¢ in Preferences and more of them round up
+      ($2.01&rarr;$3 only at 99¢). Reload after changing it.</p>
+  </div>
+
+  <h2>3. These should NOT convert (context traps)</h2>
+  <div class="card">
+    He lives on Five Mile Road and shops at the Quarter Pounder stand.
+    The meeting is at 10 min past. We met on June 1st. Section 3 in. the manual.
+    <p class="note">If any of these get underlined, that's a false positive to test the correction on.</p>
+  </div>
+
+  <h2>4. Inside &lt;code&gt; should be ignored</h2>
+  <div class="card">
+    <code>const distance = 26.2 miles; const price = $9,999.99;</code>
+  </div>
+
+  <h2>3a2. Dimension lists & prefixed volume units</h2>
+  <div class="card">
+    Item dimensions: 4 x 3 x 1 in (all three convert).
+    A rug 5 by 3 feet. A can of 8 fl oz, ≡ 1 imp fl oz.
+    <p class="note">Select any number and press <b>Ctrl+Alt+M</b> (or right-click →
+      Convert selection to metric → More units…) to open the searchable unit
+      picker: categories, search, all three fl oz, energy, pressure, esoteric units.</p>
+  </div>
+
+  <h2>3b. Cubic units</h2>
+  <div class="card">
+    The imperial gallon is ≈277.42 cu in, a box is 2 ft³, and 35 in³ of resin.
+    <p class="note">cu in / in³ → cm³ or L; cu ft / ft³ → m³ or L.</p>
+  </div>
+
+  <h2>4b. Split price across elements (Amazon-style)</h2>
+  <div class="card">
+    <span class="a-price"><span class="a-offscreen">$12.77</span><span aria-hidden="true"><span>$</span><span>12</span><span>77</span></span></span>
+    <span> &larr; should round to $13 even though it's split and has no visible decimal point.</span>
+  </div>
+
+  <h2>5. Dynamically added content (tests the live observer)</h2>
+  <div class="card">
+    <button id="add">Add a sentence after load</button>
+    <div id="target"></div>
+  </div>
+
+  <script>
+    let n = 0;
+    document.getElementById("add").addEventListener("click", () => {
+      n++;
+      const p = document.createElement("p");
+      p.textContent = `Added #${n}: a ${10 + n} mile drive costing $${(1000 + n * 137).toLocaleString()}.`;
+      document.getElementById("target").appendChild(p);
+    });
+  </script>
+</body>
+</html>

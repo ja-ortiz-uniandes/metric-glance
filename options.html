@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 15px;
+      color: #1f2430;
+      margin: 0;
+      padding: 16px;
+      max-width: 420px;
+    }
+    h1 {
+      font-size: 16px;
+      margin: 0 0 4px;
+    }
+    p.hint {
+      color: #5a6172;
+      font-size: 13px;
+      margin: 0 0 16px;
+      line-height: 1.4;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #e7e9ee;
+    }
+    .row label {
+      flex: 1;
+    }
+    .row .sub {
+      display: block;
+      color: #5a6172;
+      font-size: 12.5px;
+      margin-top: 2px;
+    }
+    input[type="number"], select {
+      font-size: 15px;
+      padding: 6px 8px;
+      border: 1px solid #c6cad3;
+      border-radius: 6px;
+      width: 110px;
+      box-sizing: border-box;
+    }
+    input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+    }
+    #status {
+      color: #1a7f37;
+      font-size: 13px;
+      margin-top: 12px;
+      min-height: 18px;
+    }
+    .example {
+      margin-top: 14px;
+      font-size: 13px;
+      color: #5a6172;
+      background: #f4f5f8;
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .example .mg {
+      text-decoration: underline dotted;
+      text-underline-offset: 2px;
+    }
+    .actionbtn {
+      font-size: 14px;
+      padding: 8px 12px;
+      border: 1px solid #c6cad3;
+      border-radius: 6px;
+      background: #f4f5f8;
+      cursor: pointer;
+    }
+    .actionbtn:hover { background: #e9ebf0; }
+    .actionbtn.danger { color: #b42318; border-color: #e0b4ae; }
+  </style>
+</head>
+<body>
+  <h1>Price rounding</h1>
+  <p class="hint">
+    Prices are rounded up to the next whole amount when they're within the
+    cents threshold below it, and shown with a dotted underline. Hover or tap
+    to see the exact price. Changes apply to pages after they reload.
+  </p>
+
+  <div class="row">
+    <label for="enabled">Round prices
+      <span class="sub">Turn price rounding on or off</span>
+    </label>
+    <input type="checkbox" id="enabled" />
+  </div>
+
+  <div class="row">
+    <label for="cents">Round up when within
+      <span class="sub">Cents (1 to 99). A price rounds up to the next whole
+        amount when it's this close to it. 1 rounds only prices ending in .99;
+        99 rounds anything with cents.</span>
+    </label>
+    <span style="white-space:nowrap"><input type="number" id="cents" min="1" max="99" step="1" /> ¢</span>
+  </div>
+
+  <div class="example" id="example"></div>
+  <div id="status"></div>
+
+  <h1 style="margin-top:22px">Your corrections</h1>
+  <p class="hint">
+    When you mark something on a page (convert a missed value, or flag a wrong
+    one), it takes effect right away and is saved here as a labeled example.
+    Export the set to fine-tune the detection model later.
+  </p>
+  <div class="row">
+    <label for="logsamples">Also log a sample of correct conversions
+      <span class="hint">Saves a small, random share of the conversions the
+        extension gets right, so the training set isn't only corrections.
+        Stored locally on this device; nothing is sent anywhere.</span>
+    </label>
+    <input type="checkbox" id="logsamples" />
+  </div>
+  <div class="example" id="counts"></div>
+  <div class="row" style="border-bottom:none">
+    <button id="export" class="actionbtn">Export training data (JSON)</button>
+    <button id="clear" class="actionbtn danger">Clear</button>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
