@@ -19,7 +19,7 @@ Detection today is a **deterministic regex engine**, not a model. For each block
 
 1. Open `about:debugging#/runtime/this-firefox` in Firefox.
 2. Click **Load Temporary Add-on...** and choose `manifest.json` from this folder.
-3. Visit any page (or open `test-page.html`). Click **Reload** in about:debugging after code changes, then hard-refresh the page.
+3. Visit any page, or the [live demo page](https://ja-ortiz-uniandes.github.io/metric-glance/). Click **Reload** in about:debugging after code changes, then hard-refresh the page.
 
 For Android testing use `web-ext run --target=firefox-android`. Permanent distribution requires signing through addons.mozilla.org.
 
@@ -32,16 +32,16 @@ For Android testing use `web-ext run --target=firefox-android`. Permanent distri
 
 ## File layout
 
-| File | Role |
-|------|------|
-| `manifest.json` | Extension manifest (MV2): permissions, content script, background, the keyboard command. |
-| `converter.js` | **The main code.** Content script: detection, conversion, the hover panel, the searchable picker, corrections, and training-data logging. |
-| `background.js` | Builds the desktop right-click menu, handles the keyboard command, reports the current shortcut. |
-| `options.html` / `options.js` | Settings page. |
-| `styles.css` | Underlines, panel, picker, and toolbar styles (picker follows Firefox's light/dark theme). |
-| `icons/` | Toolbar/listing icons. |
-| `test-page.html` | A controlled page exercising the tricky cases. |
-| `CHANGELOG.md` | Version-by-version history. |
+| File                          | Role                                                                                                                                      |
+|-------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `manifest.json`               | Extension manifest (MV2): permissions, content script, background, the keyboard command.                                                  |
+| `converter.js`                | **The main code.** Content script: detection, conversion, the hover panel, the searchable picker, corrections, and training-data logging. |
+| `background.js`               | Builds the desktop right-click menu, handles the keyboard command, reports the current shortcut.                                          |
+| `options.html` / `options.js` | Settings page.                                                                                                                            |
+| `styles.css`                  | Underlines, panel, picker, and toolbar styles (picker follows Firefox's light/dark theme).                                                |
+| `icons/`                      | Toolbar/listing icons.                                                                                                                    |
+| `docs/index.html`             | The live demo / landing page published via GitHub Pages.                                                                                  |
+| `CHANGELOG.md`                | Version-by-version history.                                                                                                               |
 
 Plain JavaScript; there is no build step.
 
