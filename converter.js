@@ -36,7 +36,7 @@
     priceRounding: true,
     // Max cents a price may be nudged UP to reach the next whole unit.
     // 1..99. e.g. 5 rounds $1.99 and $1.95 up to the next dollar, but not $1.50.
-    priceRoundCents: 50,
+    priceRoundCents: 60,
     // When on, log a small random sample of the conversions the detector got
     // right (not just corrections), so the eventual training set is balanced.
     logSamples: false,
@@ -108,27 +108,39 @@
       .catch(() => {});
   }
 
-  function logTrainingExample(label, span, context) {
+  const CONTEXT_RADIUS = 200; // chars of context kept on each side of the span
+
+  function logTrainingExample(label, span, context, opts) {
     if (!storage) return;
+    opts = opts || {};
     const ctx = (context || "").replace(/\s+/g, " ").trim();
-    let windowText = ctx.slice(0, 200);
+    let windowText = ctx.slice(0, CONTEXT_RADIUS * 2);
     let start = -1;
     let end = -1;
     const idx = ctx.indexOf(span);
     if (idx >= 0) {
-      const from = Math.max(0, idx - 80);
-      const to = Math.min(ctx.length, idx + span.length + 80);
+      const from = Math.max(0, idx - CONTEXT_RADIUS);
+      const to = Math.min(ctx.length, idx + span.length + CONTEXT_RADIUS);
       windowText = ctx.slice(from, to);
       start = idx - from;
       end = start + span.length;
     }
+    // Whether the user actually acted on this conversion. Auto-sampled
+    // positives were never touched, so the user may not even have seen them;
+    // that's a much weaker label than an explicit correction.
+    const interacted = opts.interacted !== undefined
+      ? !!opts.interacted
+      : label.indexOf("auto:") !== 0;
     pendingLog.push({
       label,
       span,
       context: windowText,
       span_start: start,
       span_end: end,
+      interacted,
       url: typeof location !== "undefined" ? location.hostname : "",
+      lang: (document.documentElement && document.documentElement.lang) || "",
+      title: (document.title || "").slice(0, 120),
       ts: Date.now(),
     });
     if (!flushTimer) flushTimer = setTimeout(flushLog, FLUSH_DELAY);
@@ -271,6 +283,15 @@
     { id: "hand", cat: "Length", name: "Hand", rank: 6, aliases: ["hand", "hands"], toMetric: (v) => v * 10.16, fmt: (v) => fmtScale("Length", v/100), rate: "1 hand = 10.16 cm" },
     { id: "mil", cat: "Length", name: "Mil (thou, 1/1000 inch)", rank: 8, aliases: ["mil", "thou"], toMetric: (v) => v * 0.0254, fmt: (v) => fmtScale("Length", v/1000), rate: "1 mil = 0.0254 mm" },
     { id: "mil_se", cat: "Length", name: "Swedish mil (10 km)", rank: 8, aliases: ["swedish mil", "scandinavian mil"], toMetric: (v) => v * 10, fmt: (v) => fmtScale("Length", v*1000), rate: "1 Swedish mil = 10 km" },
+    { id: "league", cat: "Length", name: "League", rank: 7, aliases: ["league", "leagues", "lea"], toMetric: (v) => v * 4828.032, fmt: (v) => fmtScale("Length", v), rate: "1 league = 4.828 km" },
+    { id: "link", cat: "Length", name: "Link (Gunter's)", rank: 8, aliases: ["link", "links"], toMetric: (v) => v * 0.201168, fmt: (v) => fmtScale("Length", v), rate: "1 link = 20.12 cm" },
+    { id: "cable", cat: "Length", name: "Cable length", rank: 8, aliases: ["cable", "cables", "cable length"], toMetric: (v) => v * 185.2, fmt: (v) => fmtScale("Length", v), rate: "1 cable = 185.2 m" },
+    { id: "barleycorn", cat: "Length", name: "Barleycorn", rank: 8, aliases: ["barleycorn", "barleycorns"], toMetric: (v) => v * 0.0084667, fmt: (v) => fmtScale("Length", v), rate: "1 barleycorn = 8.47 mm" },
+    { id: "twip", cat: "Length", name: "Twip", rank: 8, aliases: ["twip", "twips"], toMetric: (v) => v * 0.0000176389, fmt: (v) => fmtScale("Length", v), rate: "1 twip = 17.64 µm" },
+    { id: "tenthft", cat: "Length", name: "Tenth of a foot (rig tape)", rank: 8, aliases: ["tenth of a foot", "tenths of a foot"], toMetric: (v) => v * 0.03048, fmt: (v) => fmtScale("Length", v), rate: "1 tenth-ft = 3.048 cm" },
+    { id: "smoot", cat: "Length", name: "Smoot", rank: 8, aliases: ["smoot", "smoots"], toMetric: (v) => v * 1.7018, fmt: (v) => fmtScale("Length", v), rate: "1 smoot = 1.702 m" },
+    { id: "passus", cat: "Length", name: "Roman pace (passus)", rank: 8, aliases: ["passus", "roman pace"], toMetric: (v) => v * 1.48, fmt: (v) => fmtScale("Length", v), rate: "1 passus \u2248 1.48 m" },
+    { id: "stadium", cat: "Length", name: "Stadium (stadion)", rank: 8, aliases: ["stadium", "stadion", "stadia"], toMetric: (v) => v * 185, fmt: (v) => fmtScale("Length", v), rate: "1 stadium \u2248 185 m" },
 
     // Mass
     { id: "oz", cat: "Mass", name: "Ounce", rank: 1, aliases: ["ounce", "ounces", "oz"], toMetric: (v) => v * 28.349523, fmt: (v) => fmtScale("Mass", v), rate: "1 oz = 28.35 g" },
@@ -312,6 +333,7 @@
     { id: "peck", cat: "Volume", name: "US peck", rank: 7, aliases: ["peck", "pecks"], toMetric: (v) => v * 8.80977, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 peck = 8.810 L" },
     { id: "gill", cat: "Volume", name: "US gill", rank: 7, aliases: ["gill", "gills"], toMetric: (v) => v * 118.294, fmt: (v) => formatVolumeMl(v), rate: "1 gill = 118.3 ml" },
     { id: "bbl_oil", cat: "Volume", name: "Oil barrel", rank: 5, aliases: ["barrel", "barrels", "bbl"], toMetric: (v) => v * 158.987, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 barrel = 159.0 L" },
+    { id: "scf", cat: "Volume", name: "Standard cubic foot (gas)", rank: 6, aliases: ["scf", "standard cubic foot", "standard cubic feet"], toMetric: (v) => v * 0.0283168466, fmt: (v) => formatVolumeM3(v), rate: "1 SCF \u2248 28.32 L" },
 
     // Area
     { id: "sqft", cat: "Area", name: "Square foot", rank: 1, aliases: ["square foot", "square feet", "sq ft", "ft²"], toMetric: (v) => v * 0.09290304, fmt: (v) => formatAreaM2(v), rate: "1 sq ft = 0.0929 m²" },
@@ -319,6 +341,8 @@
     { id: "sqyd", cat: "Area", name: "Square yard", rank: 2, aliases: ["square yard", "sq yd", "yd²"], toMetric: (v) => v * 0.83612736, fmt: (v) => formatAreaM2(v), rate: "1 sq yd = 0.8361 m²" },
     { id: "sqmi", cat: "Area", name: "Square mile", rank: 2, aliases: ["square mile", "sq mi", "mi²"], toMetric: (v) => v * 2.589988, fmt: (v) => fmtScale("Area", v*1e6), rate: "1 sq mi = 2.59 km²" },
     { id: "ac", cat: "Area", name: "Acre", rank: 1, aliases: ["acre", "acres"], toMetric: (v) => v * 0.40468564, fmt: (v) => fmtScale("Area", v*1e4), rate: "1 acre = 0.4047 ha" },
+    { id: "rood", cat: "Area", name: "Rood (quarter-acre)", rank: 7, aliases: ["rood", "roods"], toMetric: (v) => v * 1011.7141056, fmt: (v) => fmtScale("Area", v), rate: "1 rood = 1012 m²" },
+    { id: "sqperch", cat: "Area", name: "Square perch (square rod/pole)", rank: 7, aliases: ["square perch", "square pole", "square rod", "sq perch", "sq pole", "sq rod"], toMetric: (v) => v * 25.29285264, fmt: (v) => fmtScale("Area", v), rate: "1 sq perch = 25.29 m²" },
 
     // Temperature (affine; rate is a formula)
     { id: "f", cat: "Temperature", name: "Fahrenheit", rank: 1, aliases: ["fahrenheit", "°f", "f"], toMetric: (v) => ((v - 32) * 5) / 9, fmt: (v) => `${round(v, 1)}\u00A0°C`, rate: "°C = (°F − 32) × 5/9" },
@@ -334,6 +358,11 @@
     { id: "kcal", cat: "Energy", name: "Food Calorie (kcal)", rank: 2, aliases: ["calorie", "calories", "kcal", "cal"], toMetric: (v) => v * 4184, fmt: (v) => formatEnergy(v), rate: "1 kcal = 4184 J" },
     { id: "cal", cat: "Energy", name: "Calorie (cal)", rank: 4, aliases: ["small calorie", "gram calorie", "cal"], toMetric: (v) => v * 4.184, fmt: (v) => formatEnergy(v), rate: "1 cal = 4.184 J" },
     { id: "ftlb", cat: "Energy", name: "Foot-pound", rank: 4, aliases: ["foot-pound", "foot pound", "ft·lb", "ft lb"], toMetric: (v) => v * 1.3558179, fmt: (v) => formatEnergy(v), rate: "1 ft·lb = 1.356 J" },
+    { id: "boe", cat: "Energy", name: "Barrel of oil equivalent", rank: 6, aliases: ["boe", "barrel of oil equivalent"], toMetric: (v) => v * 6.1178632e9, fmt: (v) => formatEnergy(v), rate: "1 BOE \u2248 6.12 GJ" },
+
+    // Density
+    { id: "ppg", cat: "Density", name: "Pounds per gallon (mud weight)", rank: 5, aliases: ["ppg", "lb/gal", "lbs/gal", "pounds per gallon"], toMetric: (v) => v * 119.8264273, fmt: (v) => fmtScale("Density", v), rate: "1 lb/gal \u2248 119.8 kg/m³" },
+    { id: "api", cat: "Density", name: "API gravity (\u2192 density)", rank: 6, aliases: ["api", "api gravity", "°api", "deg api"], toMetric: (v) => (141.5 / (v + 131.5)) * 999.016, fmt: (v) => fmtScale("Density", v), rate: "°API \u2192 141.5/(°API+131.5) × water" },
     { id: "therm", cat: "Energy", name: "Therm", rank: 5, aliases: ["therm", "therms"], toMetric: (v) => v * 105505585, fmt: (v) => formatEnergy(v), rate: "1 therm = 105.5 MJ" },
 
     // Pressure (base: kPa)
@@ -351,7 +380,7 @@
 
   const REG_BY_ID = {};
   for (const e of REGISTRY) REG_BY_ID[e.id] = e;
-  const REG_CATEGORIES = ["Length", "Mass", "Volume", "Area", "Temperature", "Speed", "Energy", "Power", "Pressure"];
+  const REG_CATEGORIES = ["Length", "Mass", "Volume", "Area", "Temperature", "Speed", "Energy", "Power", "Pressure", "Density"];
   // The handful surfaced directly in the desktop right-click menu (fast path).
   const COMMON_IDS = ["in", "ft", "mi", "lb", "oz", "usfloz", "usgal", "f"];
 
@@ -528,6 +557,7 @@
     Energy:   [["J", 1], ["kJ", 1e3], ["MJ", 1e6], ["GJ", 1e9]],           // base J
     Power:    [["W", 1], ["kW", 1e3], ["MW", 1e6], ["GW", 1e9]],           // base W
     Pressure: [["Pa", 1], ["kPa", 1e3], ["MPa", 1e6], ["GPa", 1e9]],       // base Pa
+    Density:  [["kg/m³", 1], ["g/cm³", 1000]],                              // base kg/m³
   };
   // Generic SI tier each scale belongs to, so one global prefix choice can
   // apply across every measurement type (advanced UI can override per type).
@@ -540,6 +570,7 @@
     Energy:   { J: "base", kJ: "kilo", MJ: "mega", GJ: "giga" },
     Power:    { W: "base", kW: "kilo", MW: "mega", GW: "giga" },
     Pressure: { Pa: "base", kPa: "kilo", MPa: "mega", GPa: "giga" },
+    Density:  { "kg/m³": "base", "g/cm³": "kilo" },
   };
   function clampInt(x, lo, hi, dflt) {
     x = parseInt(x, 10);
@@ -674,10 +705,16 @@
     PRICE_RE.lastIndex = 0;
     let m = PRICE_RE.exec(t);
     if (!m) { PRICE_RE.lastIndex = 0; m = PRICE_RE.exec(t.replace(/\s+/g, "")); }
-    if (!m) return null;
-    const value = parseFloat(m[2].replace(/,/g, "")) + (m[3] ? parseFloat("0." + m[3]) : 0);
-    if (!isFinite(value)) return null;
-    return { priceStr: m[0], value, symbol: m[1] };
+    if (m) {
+      const value = parseFloat(m[2].replace(/,/g, "")) + (m[3] ? parseFloat("0." + m[3]) : 0);
+      if (isFinite(value)) return { priceStr: m[0], value, symbol: m[1] };
+    }
+    // No currency symbol: allow declaring any bare number as a price.
+    const bm = t.match(/-?\d[\d,]*(?:\.\d+)?/);
+    if (!bm) return null;
+    const v = parseFloat(bm[0].replace(/,/g, ""));
+    if (!isFinite(v)) return null;
+    return { priceStr: bm[0], value: v, symbol: "" };
   }
 
   // Round a price UP to the next whole unit, but only when it is within the
@@ -1247,6 +1284,8 @@
 
     const disp = v.fmt(v.toMetric(value));
     const ca = range.commonAncestorContainer;
+    const ctxEl = ca && ca.nodeType === Node.ELEMENT_NODE ? ca : ca && ca.parentElement;
+    const ctxText = ctxEl ? ctxEl.textContent : selText;
     const ctxStyle = snapshotStyle(ca && ca.nodeType === Node.ELEMENT_NODE ? ca : ca && ca.parentElement);
     if (ca && ca.nodeType === Node.ELEMENT_NODE) inlineDescendantStyles(ca);
 
@@ -1265,7 +1304,7 @@
     if (ctxStyle) originalStyle.set(span, ctxStyle);
     range.insertNode(span);
 
-    logTrainingExample("convert-as:" + unitId, selText, selText);
+    logTrainingExample("convert-as:" + unitId, selText, ctxText, { interacted: true });
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -1278,6 +1317,9 @@
   function forcePriceFromSelection(range, force) {
     if (force === undefined) force = true;
     if (!range || range.collapsed) return { ok: false, reason: "empty" };
+    const _ca = range.commonAncestorContainer;
+    const _ctxEl = _ca && _ca.nodeType === Node.ELEMENT_NODE ? _ca : _ca && _ca.parentElement;
+    const priceCtx = _ctxEl ? _ctxEl.textContent : range.toString();
 
     let priceStr = null;
     let value = null;
@@ -1315,11 +1357,16 @@
         value = parseFloat(m2[2].replace(/,/g, "")) + (m2[3] ? parseFloat("0." + m2[3]) : 0);
       }
     }
+    // No currency anywhere: let a bare number be declared a price.
+    if (value === null) {
+      const bm = selText.match(/-?\d[\d,]*(?:\.\d+)?/);
+      if (bm) { priceStr = bm[0]; symbol = ""; value = parseFloat(bm[0].replace(/,/g, "")); }
+    }
     if (value === null || !isFinite(value)) return { ok: false, reason: "no_value" };
 
-    const rounded = roundedPriceValue(value, force); // forced: always round up
+    const rounded = roundedPriceValue(value, force);
     const intVal = rounded === null ? Math.round(value) : rounded;
-    const disp = symbol.replace(/\s+$/, "") + intVal.toLocaleString("en-US");
+    const disp = (symbol || "").replace(/\s+$/, "") + intVal.toLocaleString("en-US");
 
     const frag = range.extractContents();
     const span = document.createElement("span");
@@ -1334,7 +1381,7 @@
     originalContent.set(span, frag);
     range.insertNode(span);
 
-    logTrainingExample("price", priceStr || selText, selText);
+    logTrainingExample("price", priceStr || selText, priceCtx, { interacted: true });
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -1815,6 +1862,7 @@
     hidePanel();
     openPicker({
       seedText: span.getAttribute("data-original") || "",
+      context: span.parentElement ? span.parentElement.textContent : "",
       span: span,
       currentId: span.getAttribute("data-variant") || null,
       apply: (id) => { reconvertSpan(span, id); hidePanel(); showPanelFor(span); },
@@ -1834,6 +1882,13 @@
     const numMatch = selText.match(/-?\d[\d,]*(?:\.\d+)?/);
     const value = numMatch ? parseFloat(numMatch[0].replace(/,/g, "")) : null;
     const priceInfo = parsePriceText(selText);
+    const isPlausiblePrice = !!priceInfo && (priceInfo.symbol !== "" || /\d\.\d{2}(?!\d)/.test(selText));
+    let ctxText = (opts.context || "").replace(/\s+/g, " ").trim();
+    if (!ctxText && range) {
+      const ca = range.commonAncestorContainer;
+      const el = ca && ca.nodeType === Node.ELEMENT_NODE ? ca : (ca && ca.parentElement);
+      ctxText = el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
+    }
 
     const overlay = document.createElement("div");
     overlay.className = "mg-picker-overlay";
@@ -1861,15 +1916,75 @@
       }
     };
     applyKbd(currentShortcut);
-    head.appendChild(title);
-    head.appendChild(kbd);
+    const headLeft = document.createElement("span");
+    headLeft.style.cssText = "display:inline-flex;align-items:center;gap:8px;min-width:0";
+    headLeft.appendChild(title);
+    headLeft.appendChild(kbd);
+    head.appendChild(headLeft);
+    const minBtn = document.createElement("button");
+    minBtn.type = "button";
+    minBtn.className = "mg-pk-min";
+    minBtn.setAttribute(UI_ATTR, "1");
+    minBtn.textContent = "\u2013"; // –
+    minBtn.title = "Minimize (keep open, browse the page)";
+    minBtn.setAttribute("aria-label", "Minimize");
+    head.appendChild(minBtn);
+    // Floating chip to bring the picker back after minimizing.
+    const restore = document.createElement("button");
+    restore.type = "button";
+    restore.className = "mg-pk-restore";
+    restore.setAttribute(UI_ATTR, "1");
+    restore.textContent = "Metric Glance \u2197"; // ↗
+    restore.title = "Reopen the unit picker";
+    restore.style.display = "none";
+    overlay.appendChild(restore);
+    minBtn.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      box.style.display = "none";
+      overlay.classList.add("mg-pk-minimized");
+      restore.style.display = "";
+    });
+    restore.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      box.style.display = "";
+      overlay.classList.remove("mg-pk-minimized");
+      restore.style.display = "none";
+    });
     // Refresh from the background so it reflects any remapping, even live.
     refreshShortcut((sc) => { if (picker === overlay) applyKbd(sc); });
-    const sub = document.createElement("div");
-    sub.className = "mg-pk-sub";
-    sub.textContent = selText ? `Selection: ${selText}` : "Select some text first";
+    const selbox = document.createElement("div");
+    selbox.className = "mg-pk-selbox";
+    const sellabel = document.createElement("div");
+    sellabel.className = "mg-pk-sellabel";
+    sellabel.textContent = "Selection";
+    selbox.appendChild(sellabel);
+    if (selText) {
+      const line = document.createElement("div");
+      line.className = "mg-pk-selline";
+      const idx = ctxText.indexOf(selText);
+      const left = idx > 0 ? ctxText.slice(Math.max(0, idx - 100), idx) : "";
+      const right = idx >= 0 ? ctxText.slice(idx + selText.length, idx + selText.length + 100) : "";
+      const lspan = document.createElement("span");
+      lspan.className = "mg-pk-ctx mg-pk-ctx-l";
+      lspan.textContent = left;
+      const strong = document.createElement("strong");
+      strong.className = "mg-pk-seltext";
+      strong.textContent = selText;
+      const rspan = document.createElement("span");
+      rspan.className = "mg-pk-ctx mg-pk-ctx-r";
+      rspan.textContent = right;
+      line.appendChild(lspan);
+      line.appendChild(strong);
+      line.appendChild(rspan);
+      selbox.appendChild(line);
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "mg-pk-ctx";
+      empty.textContent = "Select some text on the page first.";
+      selbox.appendChild(empty);
+    }
     box.appendChild(head);
-    box.appendChild(sub);
+    box.appendChild(selbox);
 
     const search = document.createElement("input");
     search.type = "text";
@@ -1953,6 +2068,10 @@
         chk.className = "mg-pk-check";
         chk.textContent = "\u2713";
         nm.insertBefore(chk, nm.firstChild);
+        const pill = document.createElement("span");
+        pill.className = "mg-pk-current";
+        pill.textContent = "current";
+        nm.appendChild(pill);
       }
       row.addEventListener("click", (ev) => {
         ev.preventDefault();
@@ -2013,24 +2132,33 @@
       list.textContent = "";
       hideTip();
       const q = search.value;
-      // Treat-as-price option (when the selection looks like a price).
-      if (priceInfo && !q.trim()) {
-        list.appendChild(sectionHead("Price"));
-        list.appendChild(makePriceRow());
-      }
-      // Suggestions: only in the default All view with no active search.
       let suggested = [];
       if (activeCat === "All" && !q.trim()) suggested = suggestionsFor(hint);
-      if (suggested.length) {
+
+      // Price is its own category. Show it as a suggestion only when the
+      // selection really looks like a price; otherwise it's still reachable
+      // via the Price chip.
+      if (activeCat === "Price") {
+        if (priceInfo) {
+          list.appendChild(makePriceRow());
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "mg-pk-empty";
+          empty.textContent = "Select a number to treat as a price.";
+          list.appendChild(empty);
+        }
+        return;
+      }
+      const showPriceSug = activeCat === "All" && !q.trim() && isPlausiblePrice;
+      if (suggested.length || showPriceSug) {
         list.appendChild(sectionHead("Suggestions"));
+        if (showPriceSug) list.appendChild(makePriceRow());
         suggested.forEach((e) => list.appendChild(makeRow(e)));
-        list.appendChild(sectionHead("All units"));
-      } else if (priceInfo && !q.trim()) {
         list.appendChild(sectionHead("All units"));
       }
       const suggestedIds = new Set(suggested.map((e) => e.id));
       const items = searchRegistry(q, activeCat).filter((e) => !suggestedIds.has(e.id));
-      if (!items.length && !suggested.length) {
+      if (!items.length && !suggested.length && !showPriceSug) {
         const empty = document.createElement("div");
         empty.className = "mg-pk-empty";
         empty.textContent = "No matching units.";
@@ -2042,7 +2170,7 @@
 
     const renderChips = () => {
       chips.textContent = "";
-      ["All", ...REG_CATEGORIES].forEach((cat) => {
+      ["All", ...REG_CATEGORIES, "Price"].forEach((cat) => {
         const chip = document.createElement("button");
         chip.type = "button";
         chip.className = "mg-pk-chip" + (cat === activeCat ? " mg-pk-chip-on" : "");

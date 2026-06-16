@@ -4,7 +4,7 @@
 
   const DEFAULTS = {
     priceRounding: true,
-    priceRoundCents: 50,
+    priceRoundCents: 60,
     logSamples: false,
     maxOrderOfMagnitude: 6,
     decimalPlaces: 2,
