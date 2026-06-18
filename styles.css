@@ -182,11 +182,9 @@
 .mg-pk-sub { padding: 0 16px 10px; color: var(--mg-muted); font-size: 12.5px; }
 .mg-pk-selbox { margin: 8px 16px 16px; padding: 8px 12px; border: 1px solid var(--mg-divider); border-radius: 8px; background: var(--mg-chip-bg); }
 .mg-pk-sellabel { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--mg-muted); font-weight: 500; opacity: 0.7; margin-bottom: 4px; }
-.mg-pk-selline { display: flex; align-items: baseline; font-size: 15px; white-space: nowrap; overflow: hidden; }
-.mg-pk-seltext { font-weight: 700; color: var(--mg-fg); flex: 0 0 auto; padding: 0 2px; }
-.mg-pk-ctx { color: var(--mg-muted); overflow: hidden; min-width: 0; }
-.mg-pk-ctx-l { flex: 0 1 auto; text-align: right; -webkit-mask-image: linear-gradient(to right, transparent, #000 85%); mask-image: linear-gradient(to right, transparent, #000 85%); }
-.mg-pk-ctx-r { flex: 1 1 auto; text-align: left; -webkit-mask-image: linear-gradient(to left, transparent, #000 85%); mask-image: linear-gradient(to left, transparent, #000 85%); }
+.mg-pk-selline { display: block; position: relative; white-space: nowrap; overflow: hidden; font-size: 15px; -webkit-mask-image: linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 26px), transparent 100%); mask-image: linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 26px), transparent 100%); }
+.mg-pk-seltext { font-weight: 700; color: var(--mg-fg); padding: 0 5px; }
+.mg-pk-ctx { color: var(--mg-muted); }
 .mg-pk-search {
   margin: 0 16px 10px; padding: 8px 11px;
   border: 1px solid var(--mg-field-border); border-radius: 4px; font-size: 14px;

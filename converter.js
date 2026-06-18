@@ -45,9 +45,13 @@
     decimalPlaces: 2,       // max decimals shown
     thousandsSeparator: ",",
     // Which metric tiers to display (global), and optional per-type overrides.
-    displayTiers: ["milli", "centi", "base", "kilo", "mega", "giga"],
-    displayScales: {}, // { Length: ["cm","m"], ... } overrides tiers for that type
-    hoverScales: {},   // { Length: ["mm","m"], ... } extra units shown in the hover panel
+    displayTiers: [-3, -2, 0, 3, 6, 9],
+    hoverTiers: [-3, -2, 0, 3, 6, 9],
+    displayTiersByCat: { Volume: [-3, 0, 3], Mass: [-3, 0, 3, 6], Energy: [0, 3, 6, 9], Power: [0, 3, 6, 9], Pressure: [0, 3, 6, 9], Speed: [0], Density: [3] },
+    hoverTiersByCat: { Volume: [-3, 0, 3], Mass: [-3, 0, 3, 6], Energy: [0, 3, 6, 9], Power: [0, 3, 6, 9], Pressure: [0, 3, 6, 9], Speed: [0], Density: [3] },
+    displayScales: {}, // (no fixed non-prefix measurements remain)
+    hoverScales: {},
+    catBase: { Speed: "km/h" }, // per-measurement base unit
     useEncoder: false, // becomes meaningful once a model is provided
     encoderModelUrl: "",
   };
@@ -92,55 +96,133 @@
   let writeChain = Promise.resolve();
   const FLUSH_DELAY = 400;
 
+  const CTX_BEFORE = 400;   // context kept before the span
+  const CTX_AFTER = 200;    // context kept after (before is ~2x after)
+  const TRAIN_CAPS = { corrected: 6000, seen: 4000, auto: 2000 };
+
+  function capArr(a, n) { if (a.length > n) a.splice(0, a.length - n); return a; }
+  function migrateTraining(store) {
+    if (Array.isArray(store)) { // old flat-array format -> route by label into tiers
+      const out = { corrected: [], seen: [], auto: [] };
+      for (const r of store) {
+        const l = (r && r.label) || "";
+        const t = l.indexOf("auto:") === 0 ? "auto" : (l.indexOf("seen:") === 0 ? "seen" : "corrected");
+        out[t].push(r);
+      }
+      return out;
+    }
+    if (!store || typeof store !== "object") store = {};
+    store.corrected = store.corrected || [];
+    store.seen = store.seen || [];
+    store.auto = store.auto || [];
+    return store;
+  }
+
   function flushLog() {
     if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
     if (!storage || !pendingLog.length) return;
     const batch = pendingLog;
     pendingLog = [];
     writeChain = writeChain
-      .then(() => storage.get({ mgTraining: [] }))
+      .then(() => storage.get({ mgTraining: {} }))
       .then((res) => {
-        const list = res.mgTraining || [];
-        for (const r of batch) list.push(r);
-        if (list.length > 5000) list.splice(0, list.length - 5000);
-        return storage.set({ mgTraining: list });
+        const store = migrateTraining(res.mgTraining);
+        for (const r of batch) (store[r.tier] || store.corrected).push(r);
+        capArr(store.corrected, TRAIN_CAPS.corrected);
+        capArr(store.seen, TRAIN_CAPS.seen);
+        capArr(store.auto, TRAIN_CAPS.auto);
+        return storage.set({ mgTraining: store });
       })
       .catch(() => {});
   }
 
-  const CONTEXT_RADIUS = 200; // chars of context kept on each side of the span
+  // Nearest containing tag + nearest preceding heading: strong "what kind of
+  // page is this" signal for the classifier.
+  function domSignals(node) {
+    let el = node && node.nodeType === Node.ELEMENT_NODE ? node : (node && node.parentElement);
+    let tag = "", heading = "";
+    if (el) {
+      tag = (el.tagName || "").toLowerCase();
+      let h = el.closest ? el.closest("h1,h2,h3,h4,h5,h6") : null;
+      let cur = el;
+      for (let i = 0; i < 50 && cur && !h; i++) {
+        let p = cur.previousElementSibling;
+        while (p) {
+          if (/^H[1-6]$/.test(p.tagName)) { h = p; break; }
+          if (p.querySelector) { const inner = p.querySelector("h1,h2,h3,h4,h5,h6"); if (inner) { h = inner; break; } }
+          p = p.previousElementSibling;
+        }
+        cur = cur.parentElement;
+      }
+      if (h) heading = (h.textContent || "").replace(/\s+/g, " ").trim().slice(0, 120);
+    }
+    return { tag, heading };
+  }
+  function sentenceAround(full, idx, spanLen) {
+    if (idx < 0) return "";
+    const before = full.slice(0, idx);
+    const b = Math.max(before.lastIndexOf(". "), before.lastIndexOf("? "), before.lastIndexOf("! "));
+    const start = b >= 0 ? b + 1 : 0;
+    const from = idx + spanLen;
+    const cands = [full.indexOf(". ", from), full.indexOf("? ", from), full.indexOf("! ", from)].filter((x) => x >= 0);
+    const end = cands.length ? Math.min.apply(null, cands) + 1 : full.length;
+    return full.slice(start, end).replace(/\s+/g, " ").trim().slice(0, 300);
+  }
+  function splitNumUnit(text) {
+    const m = /(-?[\d.,]+)\s*(.*)$/.exec((text || "").trim());
+    if (!m) return { num: null, unit: (text || "").trim() };
+    return { num: parseFloat(m[1].replace(/,/g, "")), unit: m[2].trim() };
+  }
+  function pageUnitIds() {
+    const seen = {}, out = [];
+    try {
+      const nodes = document.querySelectorAll("." + MARK_CLASS + "[data-variant]");
+      for (let i = 0; i < nodes.length && out.length < 40; i++) {
+        const v = nodes[i].getAttribute("data-variant");
+        if (v && !seen[v]) { seen[v] = 1; out.push(v); }
+      }
+    } catch (e) {}
+    return out;
+  }
 
   function logTrainingExample(label, span, context, opts) {
     if (!storage) return;
     opts = opts || {};
     const ctx = (context || "").replace(/\s+/g, " ").trim();
-    let windowText = ctx.slice(0, CONTEXT_RADIUS * 2);
-    let start = -1;
-    let end = -1;
+    let before = "", after = "";
     const idx = ctx.indexOf(span);
     if (idx >= 0) {
-      const from = Math.max(0, idx - CONTEXT_RADIUS);
-      const to = Math.min(ctx.length, idx + span.length + CONTEXT_RADIUS);
-      windowText = ctx.slice(from, to);
-      start = idx - from;
-      end = start + span.length;
+      before = ctx.slice(Math.max(0, idx - CTX_BEFORE), idx);
+      after = ctx.slice(idx + span.length, idx + span.length + CTX_AFTER);
+    } else {
+      before = ctx.slice(0, CTX_BEFORE);
     }
-    // Whether the user actually acted on this conversion. Auto-sampled
-    // positives were never touched, so the user may not even have seen them;
-    // that's a much weaker label than an explicit correction.
-    const interacted = opts.interacted !== undefined
-      ? !!opts.interacted
-      : label.indexOf("auto:") !== 0;
+    const tier = opts.tier
+      || (label.indexOf("auto:") === 0 ? "auto" : (label.indexOf("seen:") === 0 ? "seen" : "corrected"));
+    const interacted = opts.interacted !== undefined ? !!opts.interacted : tier === "corrected";
+    const nu = splitNumUnit(span);
+    const dom = domSignals(opts.node);
     pendingLog.push({
       label,
+      tier,                                   // corrected | seen | auto (value)
       span,
-      context: windowText,
-      span_start: start,
-      span_end: end,
+      num: opts.num != null ? opts.num : nu.num,
+      unit: opts.unit || nu.unit,
+      unit_id: opts.unitId || null,
+      before,                                 // up to 400 chars before
+      after,                                  // up to 200 chars after
+      sentence: sentenceAround(ctx, idx, span.length),
+      heading: dom.heading,
+      tag: dom.tag,
+      page_units: pageUnitIds(),              // co-occurring converted units
+      span_start: before.length,
+      span_end: before.length + span.length,
       interacted,
+      seen: opts.seen !== undefined ? !!opts.seen : (tier !== "auto"),
       url: typeof location !== "undefined" ? location.hostname : "",
       lang: (document.documentElement && document.documentElement.lang) || "",
       title: (document.title || "").slice(0, 120),
+      locale: (typeof navigator !== "undefined" && navigator.language) || "",
       ts: Date.now(),
     });
     if (!flushTimer) flushTimer = setTimeout(flushLog, FLUSH_DELAY);
@@ -208,12 +290,12 @@
       { id: "st", label: "Weight (stone → kg)", toMetric: (v) => v * 6.35029318, fmt: (v) => fmtScale("Mass", v*1000), rate: "1 stone = 6.35 kg" },
     ] },
     { name: "gallons", pattern: "(?:(?:imp(?:erial)?|u\\.?\\s?s\\.?|us)\\s+)?(?:gallons?|gal\\.?)", variants: [
-      { id: "usgal", label: "US gallon (→ L)", toMetric: (v) => v * 3.785412, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US gal = 3.785 L", surfaces: /^(?!.*imp)/i },
-      { id: "impgal", label: "Imperial gallon (→ L)", toMetric: (v) => v * 4.54609, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 imp gal = 4.546 L", surfaces: /^(?!.*u\.?s)/i },
+      { id: "usgal", label: "US gallon (→ L)", toMetric: (v) => v * 3.785412, fmt: (v) => fmtScale("Volume", v), rate: "1 US gal = 3.785 L", surfaces: /^(?!.*imp)/i },
+      { id: "impgal", label: "Imperial gallon (→ L)", toMetric: (v) => v * 4.54609, fmt: (v) => fmtScale("Volume", v), rate: "1 imp gal = 4.546 L", surfaces: /^(?!.*u\.?s)/i },
     ] },
     { name: "quarts", pattern: "(?:(?:imp(?:erial)?|u\\.?\\s?s\\.?|us)\\s+)?(?:quarts?|qts?\\.?)", variants: [
-      { id: "usqt", label: "US quart (→ L)", toMetric: (v) => v * 0.946353, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US qt = 0.946 L", surfaces: /^(?!.*imp)/i },
-      { id: "impqt", label: "Imperial quart (→ L)", toMetric: (v) => v * 1.136523, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 imp qt = 1.137 L", surfaces: /^(?!.*u\.?s)/i },
+      { id: "usqt", label: "US quart (→ L)", toMetric: (v) => v * 0.946353, fmt: (v) => fmtScale("Volume", v), rate: "1 US qt = 0.946 L", surfaces: /^(?!.*imp)/i },
+      { id: "impqt", label: "Imperial quart (→ L)", toMetric: (v) => v * 1.136523, fmt: (v) => fmtScale("Volume", v), rate: "1 imp qt = 1.137 L", surfaces: /^(?!.*u\.?s)/i },
     ] },
     { name: "pints", pattern: "(?:(?:imp(?:erial)?|u\\.?\\s?s\\.?|us)\\s+)?(?:pints?|pts?\\.)", variants: [
       { id: "uspt", label: "US pint (→ ml)", toMetric: (v) => v * 473.176, fmt: (v) => formatVolumeMl(v), rate: "1 US pint = 473 ml", surfaces: /^(?!.*imp)/i },
@@ -318,21 +400,21 @@
     { id: "cup_legal", cat: "Volume", name: "US legal cup (240 ml)", rank: 4, aliases: ["legal cup", "us legal cup"], toMetric: (v) => v * 240, fmt: (v) => formatVolumeMl(v), rate: "1 legal cup = 240 ml" },
     { id: "cup_metric", cat: "Volume", name: "Metric cup (250 ml)", rank: 4, aliases: ["metric cup"], toMetric: (v) => v * 250, fmt: (v) => formatVolumeMl(v), rate: "1 metric cup = 250 ml" },
     { id: "uspt", cat: "Volume", name: "US pint", rank: 2, aliases: ["pint", "pints", "us pint", "pt"], toMetric: (v) => v * 473.176, fmt: (v) => formatVolumeMl(v), rate: "1 US pint = 473 ml" },
-    { id: "usqt", cat: "Volume", name: "US quart", rank: 2, aliases: ["quart", "quarts", "us quart", "qt"], toMetric: (v) => v * 0.946353, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US qt = 0.946 L" },
-    { id: "usgal", cat: "Volume", name: "US gallon", rank: 1, aliases: ["gallon", "gallons", "us gallon", "gal"], toMetric: (v) => v * 3.785412, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US gal = 3.785 L" },
+    { id: "usqt", cat: "Volume", name: "US quart", rank: 2, aliases: ["quart", "quarts", "us quart", "qt"], toMetric: (v) => v * 0.946353, fmt: (v) => fmtScale("Volume", v), rate: "1 US qt = 0.946 L" },
+    { id: "usgal", cat: "Volume", name: "US gallon", rank: 1, aliases: ["gallon", "gallons", "us gallon", "gal"], toMetric: (v) => v * 3.785412, fmt: (v) => fmtScale("Volume", v), rate: "1 US gal = 3.785 L" },
     { id: "imppt", cat: "Volume", name: "Imperial pint", rank: 3, aliases: ["imperial pint", "uk pint"], toMetric: (v) => v * 568.261, fmt: (v) => formatVolumeMl(v), rate: "1 imp pint = 568 ml" },
-    { id: "impqt", cat: "Volume", name: "Imperial quart", rank: 4, aliases: ["imperial quart", "uk quart"], toMetric: (v) => v * 1.136523, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 imp qt = 1.137 L" },
-    { id: "impgal", cat: "Volume", name: "Imperial gallon", rank: 2, aliases: ["imperial gallon", "uk gallon"], toMetric: (v) => v * 4.54609, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 imp gal = 4.546 L" },
+    { id: "impqt", cat: "Volume", name: "Imperial quart", rank: 4, aliases: ["imperial quart", "uk quart"], toMetric: (v) => v * 1.136523, fmt: (v) => fmtScale("Volume", v), rate: "1 imp qt = 1.137 L" },
+    { id: "impgal", cat: "Volume", name: "Imperial gallon", rank: 2, aliases: ["imperial gallon", "uk gallon"], toMetric: (v) => v * 4.54609, fmt: (v) => fmtScale("Volume", v), rate: "1 imp gal = 4.546 L" },
     { id: "usdrypt", cat: "Volume", name: "US dry pint", rank: 6, aliases: ["dry pint", "us dry pint"], toMetric: (v) => v * 550.610, fmt: (v) => formatVolumeMl(v), rate: "1 US dry pint = 551 ml" },
-    { id: "usdryqt", cat: "Volume", name: "US dry quart", rank: 6, aliases: ["dry quart", "us dry quart"], toMetric: (v) => v * 1.101221, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US dry qt = 1.101 L" },
+    { id: "usdryqt", cat: "Volume", name: "US dry quart", rank: 6, aliases: ["dry quart", "us dry quart"], toMetric: (v) => v * 1.101221, fmt: (v) => fmtScale("Volume", v), rate: "1 US dry qt = 1.101 L" },
     { id: "cuin", cat: "Volume", name: "Cubic inch", rank: 2, aliases: ["cubic inch", "cu in", "in³"], toMetric: (v) => v * 16.387064, fmt: (v) => formatVolumeCm3(v), rate: "1 cu in = 16.39 cm³" },
     { id: "cuft", cat: "Volume", name: "Cubic foot", rank: 2, aliases: ["cubic foot", "cubic feet", "cu ft", "ft³"], toMetric: (v) => v * 0.0283168466, fmt: (v) => formatVolumeM3(v), rate: "1 cu ft = 0.0283 m³" },
     { id: "cuyd", cat: "Volume", name: "Cubic yard", rank: 4, aliases: ["cubic yard", "cu yd", "yd³"], toMetric: (v) => v * 0.764554858, fmt: (v) => formatVolumeM3(v), rate: "1 cu yd = 0.765 m³" },
-    { id: "bushel", cat: "Volume", name: "US bushel", rank: 6, aliases: ["bushel", "bushels", "us bushel"], toMetric: (v) => v * 35.2391, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 US bushel = 35.24 L" },
-    { id: "bushel_imp", cat: "Volume", name: "Imperial bushel", rank: 7, aliases: ["imperial bushel", "uk bushel"], toMetric: (v) => v * 36.36872, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 imp bushel = 36.37 L" },
-    { id: "peck", cat: "Volume", name: "US peck", rank: 7, aliases: ["peck", "pecks"], toMetric: (v) => v * 8.80977, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 peck = 8.810 L" },
+    { id: "bushel", cat: "Volume", name: "US bushel", rank: 6, aliases: ["bushel", "bushels", "us bushel"], toMetric: (v) => v * 35.2391, fmt: (v) => fmtScale("Volume", v), rate: "1 US bushel = 35.24 L" },
+    { id: "bushel_imp", cat: "Volume", name: "Imperial bushel", rank: 7, aliases: ["imperial bushel", "uk bushel"], toMetric: (v) => v * 36.36872, fmt: (v) => fmtScale("Volume", v), rate: "1 imp bushel = 36.37 L" },
+    { id: "peck", cat: "Volume", name: "US peck", rank: 7, aliases: ["peck", "pecks"], toMetric: (v) => v * 8.80977, fmt: (v) => fmtScale("Volume", v), rate: "1 peck = 8.810 L" },
     { id: "gill", cat: "Volume", name: "US gill", rank: 7, aliases: ["gill", "gills"], toMetric: (v) => v * 118.294, fmt: (v) => formatVolumeMl(v), rate: "1 gill = 118.3 ml" },
-    { id: "bbl_oil", cat: "Volume", name: "Oil barrel", rank: 5, aliases: ["barrel", "barrels", "bbl"], toMetric: (v) => v * 158.987, fmt: (v) => fmtScale("Volume", v*1000), rate: "1 barrel = 159.0 L" },
+    { id: "bbl_oil", cat: "Volume", name: "Oil barrel", rank: 5, aliases: ["barrel", "barrels", "bbl"], toMetric: (v) => v * 158.987, fmt: (v) => fmtScale("Volume", v), rate: "1 barrel = 159.0 L" },
     { id: "scf", cat: "Volume", name: "Standard cubic foot (gas)", rank: 6, aliases: ["scf", "standard cubic foot", "standard cubic feet"], toMetric: (v) => v * 0.0283168466, fmt: (v) => formatVolumeM3(v), rate: "1 SCF \u2248 28.32 L" },
 
     // Area
@@ -548,62 +630,108 @@
   // that reads most simply: no leading "0.x", fewest decimals, then fewest
   // integer digits, capped at maxOrderOfMagnitude integer digits. So 0.62 m
   // shows as "62 cm", 551 ml stays "551 ml" (not "0.55 L").
-  const SCALES = {
-    Length:   [["mm", 1e-3], ["cm", 1e-2], ["m", 1], ["km", 1e3]],         // base m
-    Mass:     [["mg", 1e-3], ["g", 1], ["kg", 1e3], ["t", 1e6]],           // base g
-    Volume:   [["ml", 1], ["L", 1e3], ["m³", 1e6]],                        // base ml
-    Area:     [["cm²", 1e-4], ["m²", 1], ["km²", 1e6]],                    // base m²
-    Speed:    [["m/s", 1], ["km/h", 1 / 3.6]],                             // base m/s
-    Energy:   [["J", 1], ["kJ", 1e3], ["MJ", 1e6], ["GJ", 1e9]],           // base J
-    Power:    [["W", 1], ["kW", 1e3], ["MW", 1e6], ["GW", 1e9]],           // base W
-    Pressure: [["Pa", 1], ["kPa", 1e3], ["MPa", 1e6], ["GPa", 1e9]],       // base Pa
-    Density:  [["kg/m³", 1], ["g/cm³", 1000]],                              // base kg/m³
+  // Prefix-based scale model: a category has a base unit and a dimensional
+  // power. ANY SI prefix can be applied generically — displayed symbol is
+  // prefix+base, factor is 10^(exp*dim) — so the prefix table needs no
+  // greyed-out rows. Compound units (speed, density) stay as fixed lists.
+  const PREFIXES = [
+    [30, "Q"], [27, "R"], [24, "Y"], [21, "Z"], [18, "E"], [15, "P"], [12, "T"],
+    [9, "G"], [6, "M"], [3, "k"], [2, "h"], [1, "da"], [0, ""], [-1, "d"],
+    [-2, "c"], [-3, "m"], [-6, "\u00B5"], [-9, "n"], [-12, "p"], [-15, "f"],
+    [-18, "a"], [-21, "z"], [-24, "y"], [-27, "r"], [-30, "q"],
+  ];
+  const PREFIX_BY_SYM = {};
+  PREFIXES.forEach((p) => { PREFIX_BY_SYM[p[1]] = p[0]; });
+  // Each measurement has one or more interchangeable base-unit representations.
+  // f = canonical units per 1 of this base (no prefix); dim = how a prefix
+  // exponent scales it (length 1, area 2, volume-as-m³ 3). Canonical unit per
+  // category is the first option (metre, gram, litre, m², joule, watt, pascal).
+  const CAT_UNIT_OPTIONS = {
+    Length:   [{ sym: "m", f: 1, dim: 1 }],
+    Mass:     [{ sym: "g", f: 1, dim: 1 }],
+    Volume:   [{ sym: "L", f: 1, dim: 1 }, { sym: "m\u00B3", f: 1000, dim: 3 }],
+    Area:     [{ sym: "m\u00B2", f: 1, dim: 2 }],
+    Energy:   [{ sym: "J", f: 1, dim: 1 }, { sym: "Wh", f: 3600, dim: 1 }, { sym: "cal", f: 4.184, dim: 1 }, { sym: "kg\u00B7m\u00B2/s\u00B2", f: 1, dim: 1 }],
+    Power:    [{ sym: "W", f: 1, dim: 1 }, { sym: "J/s", f: 1, dim: 1 }],
+    Pressure: [{ sym: "Pa", f: 1, dim: 1 }, { sym: "bar", f: 1e5, dim: 1 }, { sym: "N/m\u00B2", f: 1, dim: 1 }],
+    Speed:    [{ sym: "m/s", f: 1, dim: 1 }, { sym: "km/h", f: 1 / 3.6, dim: 0 }],
+    Density:  [{ sym: "g/m\u00B3", f: 0.001, dim: 1 }, { sym: "g/cm\u00B3", f: 1000, dim: 1 }],
   };
-  // Generic SI tier each scale belongs to, so one global prefix choice can
-  // apply across every measurement type (advanced UI can override per type).
-  const TIER_OF = {
-    Length:   { mm: "milli", cm: "centi", m: "base", km: "kilo" },
-    Mass:     { mg: "milli", g: "base", kg: "kilo", t: "mega" },
-    Volume:   { ml: "milli", L: "base", "m³": "kilo" },
-    Area:     { "cm²": "centi", "m²": "base", "km²": "kilo" },
-    Speed:    { "m/s": "base", "km/h": "kilo" },
-    Energy:   { J: "base", kJ: "kilo", MJ: "mega", GJ: "giga" },
-    Power:    { W: "base", kW: "kilo", MW: "mega", GW: "giga" },
-    Pressure: { Pa: "base", kPa: "kilo", MPa: "mega", GPa: "giga" },
-    Density:  { "kg/m³": "base", "g/cm³": "kilo" },
-  };
+  const CATBASE = {}; // default (canonical) base symbol + dim per category
+  for (const cat in CAT_UNIT_OPTIONS) CATBASE[cat] = { sym: CAT_UNIT_OPTIONS[cat][0].sym, dim: CAT_UNIT_OPTIONS[cat][0].dim };
+  const SPECIAL = {}; // (no fixed non-prefix measurements remain)
+  const DEFAULT_EXPS = [-3, -2, 0, 3, 6, 9]; // milli, centi, base, kilo, mega, giga
+
   function clampInt(x, lo, hi, dflt) {
     x = parseInt(x, 10);
     if (!isFinite(x)) return dflt;
     return Math.max(lo, Math.min(hi, x));
   }
-  function enabledScales(cat) {
-    const all = SCALES[cat];
-    const ov = settings.displayScales && settings.displayScales[cat];
-    if (ov && ov.length) {
-      const f = all.filter((u) => ov.indexOf(u[0]) >= 0);
-      if (f.length) return f;
+  // Resolve a unit symbol to {cat, factor} (base units per 1 unit), or null.
+  function symInfo(sym) {
+    for (const cat in SPECIAL) {
+      const u = SPECIAL[cat].find((x) => x[0] === sym);
+      if (u) return { cat, factor: u[1] };
     }
-    const tiers = settings.displayTiers;
-    if (tiers && tiers.length) {
-      const f = all.filter((u) => tiers.indexOf(TIER_OF[cat][u[0]]) >= 0);
-      if (f.length) return f;
+    for (const cat in CAT_UNIT_OPTIONS) {
+      for (const opt of CAT_UNIT_OPTIONS[cat]) {
+        if (sym === opt.sym) return { cat, factor: opt.f };
+        if (sym.length > opt.sym.length && sym.slice(-opt.sym.length) === opt.sym) {
+          const e = PREFIX_BY_SYM[sym.slice(0, sym.length - opt.sym.length)];
+          if (e !== undefined) return { cat, factor: opt.f * Math.pow(10, e * opt.dim) };
+        }
+      }
     }
-    return all;
+    return null;
   }
-  // Render a base value in one specific scale (for the hover "also in" list).
+  function symFactor(sym) { const i = symInfo(sym); return i ? i.factor : null; }
+  function scalesFromExps(cat, exps) {
+    const baseSym = (settings.catBase && settings.catBase[cat]) || CATBASE[cat].sym;
+    return exps.map((e) => {
+      const psym = (PREFIXES.find((p) => p[0] === e) || [0, ""])[1];
+      const sym = psym + baseSym;
+      const f = symFactor(sym);
+      return f != null ? [sym, f] : null;
+    }).filter(Boolean);
+  }
+  function scalesFromSyms(cat, syms) {
+    return syms.map((s) => { const f = symFactor(s); return f != null ? [s, f] : null; }).filter(Boolean);
+  }
+  function enabledScales(cat) {
+    if (SPECIAL[cat]) {
+      const ov = settings.displayScales && settings.displayScales[cat];
+      if (ov && ov.length) { const f = SPECIAL[cat].filter((u) => ov.indexOf(u[0]) >= 0); if (f.length) return f; }
+      return SPECIAL[cat];
+    }
+    const per = settings.displayTiersByCat && settings.displayTiersByCat[cat];
+    const exps = (per && per.length) ? per
+      : ((settings.displayTiers && settings.displayTiers.length) ? settings.displayTiers : DEFAULT_EXPS);
+    return scalesFromExps(cat, exps);
+  }
+  function enabledHoverScales(cat) {
+    if (SPECIAL[cat]) {
+      const ov = settings.hoverScales && settings.hoverScales[cat];
+      if (ov && ov.length) return SPECIAL[cat].filter((u) => ov.indexOf(u[0]) >= 0);
+      return [];
+    }
+    const per = settings.hoverTiersByCat && settings.hoverTiersByCat[cat];
+    const exps = (per && per.length) ? per : settings.hoverTiers;
+    if (exps && exps.length) return scalesFromExps(cat, exps);
+    return [];
+  }
+  // Render a base value in one specific scale. Returns null if it rounds to 0
+  // at the current precision (so the hover panel can skip it).
   function renderInScale(cat, base, sym) {
-    const def = SCALES[cat];
-    if (!def) return null;
-    const u = def.find((x) => x[0] === sym);
-    if (!u) return null;
+    const f = symFactor(sym);
+    if (f == null) return null;
     const maxDec = clampInt(settings.decimalPlaces, 0, 6, 2);
+    const v = base / f;
+    if (Number(Math.abs(v).toFixed(maxDec)) === 0) return null;
     const sep = settings.thousandsSeparator != null ? settings.thousandsSeparator : ",";
-    return fmtNum(base / u[1], maxDec, sep) + "\u00A0" + sym;
+    return fmtNum(v, maxDec, sep) + "\u00A0" + sym;
   }
   // Derive (category, base-units-per-1-input-unit) for any unit entry purely
-  // from its own fmt output, so we can show the value in other metric scales
-  // without tagging every unit. Returns null for non-scale units (°C, money).
+  // from its own fmt output. Returns null for non-scale units (°C, money).
   function unitBaseInfo(entry) {
     if (!entry || typeof entry.toMetric !== "function" || typeof entry.fmt !== "function") return null;
     const saved = settings.decimalPlaces;
@@ -613,12 +741,8 @@
     const m = /^(-?[\d.,]+)\u00A0?(.+)$/.exec(s || "");
     if (!m) return null;
     const num = parseFloat(m[1].replace(/,/g, ""));
-    const sym = m[2].trim();
-    for (const cat of Object.keys(SCALES)) {
-      const u = SCALES[cat].find((x) => x[0] === sym);
-      if (u) return { cat, base1: num * u[1] };
-    }
-    return null;
+    const info = symInfo(m[2].trim());
+    return info ? { cat: info.cat, base1: num * info.factor } : null;
   }
   function groupInt(s, sep) { return sep ? s.replace(/\B(?=(\d{3})+(?!\d))/g, sep) : s; }
   function fmtNum(v, maxDec, sep) {
@@ -635,8 +759,7 @@
     return false;
   }
   function fmtScale(cat, base) {
-    const def = SCALES[cat];
-    if (!def) return String(base);
+    if (!CATBASE[cat] && !SPECIAL[cat]) return String(base);
     const maxDec = clampInt(settings.decimalPlaces, 0, 6, 2);
     const maxOOM = clampInt(settings.maxOrderOfMagnitude, 1, 12, 6);
     const sep = settings.thousandsSeparator != null ? settings.thousandsSeparator : ",";
@@ -673,9 +796,9 @@
   }
   function formatLengthM(m) { return fmtScale("Length", m); }
   function formatMassKg(kg) { return fmtScale("Mass", kg * 1000); }
-  function formatVolumeMl(ml) { return fmtScale("Volume", ml); }
-  function formatVolumeCm3(cm3) { return fmtScale("Volume", cm3); }
-  function formatVolumeM3(m3) { return fmtScale("Volume", m3 * 1e6); }
+  function formatVolumeMl(ml) { return fmtScale("Volume", ml / 1000); }
+  function formatVolumeCm3(cm3) { return fmtScale("Volume", cm3 / 1000); }
+  function formatVolumeM3(m3) { return fmtScale("Volume", m3 * 1000); }
   function formatMassT(kg) { return fmtScale("Mass", kg * 1000); }
   function formatAreaM2(m2) { return fmtScale("Area", m2); }
   function formatEnergy(j) { return fmtScale("Energy", j); }
@@ -988,15 +1111,15 @@
   // labelled with the unit it resolved to, so the dataset isn't all corrections.
   function maybeLogPositive(c, contextText) {
     if (!settings.logSamples || Math.random() >= SAMPLE_RATE) return;
-    let label;
-    if (c.kind === "price") label = "auto:price";
+    let label, unitId;
+    if (c.kind === "price") { label = "auto:price"; unitId = "price"; }
     else if (c.dim) return; // skip dimension lists for now
     else {
       const v = variantFor(c);
       if (!v || v.money) return;
-      label = "auto:" + v.id;
+      label = "auto:" + v.id; unitId = v.id;
     }
-    logTrainingExample(label, c.full, contextText);
+    logTrainingExample(label, c.full, contextText, { tier: "auto", unitId: unitId });
   }
 
   // Snapshot the text styling of the match's context (and inline child styles)
@@ -1267,7 +1390,7 @@
     span.setAttribute("data-kind", "unit");
     span.setAttribute("data-variant", unitId);
     span.setAttribute("aria-label", `${span.textContent}, originally ${original}, activate to review`);
-    logTrainingExample("interpretation:" + unitId, original, original);
+    logTrainingExample("interpretation:" + unitId, original, span.parentElement ? span.parentElement.textContent : original, { node: span, unitId: unitId, interacted: true });
     return true;
   }
 
@@ -1304,7 +1427,7 @@
     if (ctxStyle) originalStyle.set(span, ctxStyle);
     range.insertNode(span);
 
-    logTrainingExample("convert-as:" + unitId, selText, ctxText, { interacted: true });
+    logTrainingExample("convert-as:" + unitId, selText, ctxText, { interacted: true, node: ctxEl, unitId: unitId });
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -1381,7 +1504,7 @@
     originalContent.set(span, frag);
     range.insertNode(span);
 
-    logTrainingExample("price", priceStr || selText, priceCtx, { interacted: true });
+    logTrainingExample("price", priceStr || selText, priceCtx, { interacted: true, node: _ctxEl, unitId: "price" });
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -1404,7 +1527,7 @@
     span.setAttribute("data-kind", "price");
     span.removeAttribute("data-variant");
     span.setAttribute("aria-label", `${disp}, originally ${original}, activate to review`);
-    logTrainingExample("price", original, original);
+    logTrainingExample("price", original, span.parentElement ? span.parentElement.textContent : original, { node: span, unitId: "price", interacted: true });
     return { ok: true };
   }
 
@@ -1418,7 +1541,7 @@
 
     const parentText = span.parentElement ? span.parentElement.textContent : "";
     const ctx = parentText.replace(span.textContent, original);
-    logTrainingExample("not_a_conversion", original, ctx);
+    logTrainingExample("not_a_conversion", original, ctx, { node: span, unitId: span.getAttribute("data-variant") || null });
     revertAllMatching(original);
   }
 
@@ -1447,7 +1570,7 @@
     rules.blockUnits = rules.blockUnits.filter((r) => norm(r) !== norm(original));
     rebuildRuleSets();
     persistRules();
-    logTrainingExample("interpretation:" + variantId, original, context || "");
+    logTrainingExample("interpretation:" + variantId, original, context || "", { unitId: variantId, interacted: true });
     // revert existing spans for this surface, then rescan so they re-render
     revertAllMatching(original);
     rescan();
@@ -1496,6 +1619,17 @@
 
     const original = span.getAttribute("data-original");
     const kind = span.getAttribute("data-kind");
+
+    // The user opened the panel, so they saw this conversion. If they don't
+    // correct it, that's a mid-value "seen but accepted" example. Log once per
+    // span, only when sample logging is enabled.
+    if (settings.logSamples && !span.__mgSeenLogged) {
+      span.__mgSeenLogged = true;
+      const vid = span.getAttribute("data-variant") || (kind === "price" ? "price" : null);
+      logTrainingExample("seen:" + (vid || "unit"), original || span.textContent,
+        span.parentElement ? span.parentElement.textContent : (original || ""),
+        { tier: "seen", seen: true, interacted: false, node: span, unitId: vid });
+    }
 
     const el = document.createElement("div");
     el.className = "mg-popover";
@@ -1601,9 +1735,11 @@
 
       // "Also in" — value rendered in the user's chosen extra hover units.
       const bi = unitBaseInfo(curV);
-      if (bi && settings.hoverScales && settings.hoverScales[bi.cat] && spanValue != null) {
+      const hov = bi ? enabledHoverScales(bi.cat) : [];
+      if (bi && hov.length && spanValue != null) {
         const dispSym = (/\u00A0?([^\u00A0\d.,-]+)$/.exec(span.textContent) || [])[1];
-        const extras = settings.hoverScales[bi.cat]
+        const extras = hov
+          .map((u) => u[0])
           .filter((sym) => sym !== (dispSym ? dispSym.trim() : ""))
           .map((sym) => renderInScale(bi.cat, bi.base1 * spanValue, sym))
           .filter(Boolean);
@@ -1962,21 +2098,27 @@
       const line = document.createElement("div");
       line.className = "mg-pk-selline";
       const idx = ctxText.indexOf(selText);
-      const left = idx > 0 ? ctxText.slice(Math.max(0, idx - 100), idx) : "";
-      const right = idx >= 0 ? ctxText.slice(idx + selText.length, idx + selText.length + 100) : "";
+      const beforeAll = idx > 0 ? ctxText.slice(0, idx) : "";
+      const afterAll = idx >= 0 ? ctxText.slice(idx + selText.length) : "";
       const lspan = document.createElement("span");
-      lspan.className = "mg-pk-ctx mg-pk-ctx-l";
-      lspan.textContent = left;
+      lspan.className = "mg-pk-ctx";
+      lspan.textContent = beforeAll.slice(-80);
       const strong = document.createElement("strong");
       strong.className = "mg-pk-seltext";
       strong.textContent = selText;
       const rspan = document.createElement("span");
-      rspan.className = "mg-pk-ctx mg-pk-ctx-r";
-      rspan.textContent = right;
+      rspan.className = "mg-pk-ctx";
+      rspan.textContent = afterAll.slice(0, 80);
       line.appendChild(lspan);
       line.appendChild(strong);
       line.appendChild(rspan);
       selbox.appendChild(line);
+      // Scroll so the selection sits a fixed bit in from the left edge:
+      // always some context before it, but never pushed past mid-box.
+      requestAnimationFrame(() => {
+        const inset = Math.min(64, line.clientWidth * 0.4);
+        line.scrollLeft = Math.max(0, strong.offsetLeft - inset);
+      });
     } else {
       const empty = document.createElement("div");
       empty.className = "mg-pk-ctx";
