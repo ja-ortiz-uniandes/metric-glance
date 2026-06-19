@@ -44,10 +44,10 @@ Detection today is a **deterministic regex engine**, not a model. For each block
 ## Install (temporary, for development)
 
 1. Open `about:debugging#/runtime/this-firefox` in Firefox.
-2. Click **Load Temporary Add-on...** and choose `manifest.json` from this folder.
+2. Click **Load Temporary Add-on...** and choose `extension/manifest.json`.
 3. Visit any page, or the [live demo page](https://ja-ortiz-uniandes.github.io/metric-glance/). Click **Reload** in about:debugging after code changes, then hard-refresh the page.
 
-For Android testing use `web-ext run --target=firefox-android`. Permanent distribution requires signing through addons.mozilla.org.
+For Android testing run `web-ext run --source-dir extension --target=firefox-android` (or run `web-ext` from inside the `extension/` directory). Permanent distribution requires signing through addons.mozilla.org.
 
 ## Usage
 
@@ -68,6 +68,8 @@ For Android testing use `web-ext run --target=firefox-android`. Permanent distri
 | `icons/`                      | Toolbar/listing icons.                                                                                                                    |
 | `docs/index.html`             | The live demo / landing page published via GitHub Pages.                                                                                  |
 | `CHANGELOG.md`                | Version-by-version history.                                                                                                               |
+
+The runtime files above live in the `extension/` directory, which is what gets packaged into the xpi. The `collect/` backend and the `docs/` demo sit alongside `extension/` in the repo but are never shipped in the add-on.
 
 Plain JavaScript; there is no build step.
 
