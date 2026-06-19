@@ -82,6 +82,10 @@
   </style>
 </head>
 <body>
+  <div id="share-nudge" style="display:none; align-items:center; justify-content:space-between; gap:12px; background:#fffceb; border:1px solid #f5cc4e; border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:13px; color:#7a5a00;">
+    <span>Data collection is not fully enabled. Your corrections may not be used to improve detection.</span>
+    <button id="nudge-on" class="actionbtn" style="white-space:nowrap; flex-shrink:0; font-size:13px; padding:6px 10px;">Turn on</button>
+  </div>
   <h1>Price rounding</h1>
   <p class="hint">
     Prices are rounded up to the next whole amount when they're within the
@@ -153,12 +157,21 @@
     Export the set to fine-tune the detection model later.
   </p>
   <div class="row">
-    <label for="logsamples">Also log a sample of correct conversions
-      <span class="hint">Saves a small, random share of the conversions the
-        extension gets right, so the training set isn't only corrections.
-        Stored locally on this device; nothing is sent anywhere.</span>
+    <label for="logsamples">Also save hover and auto-detected entries
+      <span class="hint">Saves entries you hovered over (but did not correct)
+        and a small random sample of automatic detections. Gives the training
+        set more variety beyond corrections alone. Stored locally.</span>
     </label>
     <input type="checkbox" id="logsamples" />
+  </div>
+  <div class="row">
+    <label for="sharedata">Share data to improve detection
+      <span class="hint">Uploads your saved training examples to a private
+        backend so they can be used to train a better detection model. Only
+        anonymized examples are sent (no account, no full URLs). Off by
+        default. You can turn it off at any time.</span>
+    </label>
+    <input type="checkbox" id="sharedata" />
   </div>
   <div class="example" id="counts"></div>
   <div class="row" style="border-bottom:none">

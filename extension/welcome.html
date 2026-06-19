@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Welcome to Metric Glance</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f2f7;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+      color: #1f2430;
+    }
+
+    .page {
+      background: white;
+      border-radius: 16px;
+      padding: 44px 40px 36px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 4px 32px rgba(0, 0, 0, 0.09);
+    }
+
+    /* Header */
+    .header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+    .header img {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+    }
+    .header h1 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      margin-bottom: 8px;
+    }
+    .header p {
+      font-size: 14px;
+      color: #5a6172;
+      line-height: 1.55;
+      max-width: 340px;
+      margin: 0 auto;
+    }
+
+    /* Section label */
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9099aa;
+      margin-bottom: 12px;
+    }
+
+    /* Feature cards */
+    .card {
+      border: 1.5px solid #e7e9ee;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+    }
+    .card.on {
+      border-color: #4361ee;
+      background: #f5f7ff;
+    }
+
+    .card-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .card-name {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+    .track {
+      position: absolute;
+      inset: 0;
+      background: #d1d5de;
+      border-radius: 24px;
+      transition: background 0.18s;
+      pointer-events: none;
+    }
+    .track::after {
+      content: "";
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      background: white;
+      border-radius: 50%;
+      top: 3px;
+      left: 3px;
+      transition: transform 0.18s;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+    }
+    .toggle input:checked + .track { background: #4361ee; }
+    .toggle input:checked + .track::after { transform: translateX(20px); }
+    .toggle input:focus-visible + .track {
+      outline: 2px solid #4361ee;
+      outline-offset: 2px;
+    }
+
+    /* What is this */
+    .what-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #9099aa;
+      margin-bottom: 5px;
+    }
+    .card-desc {
+      font-size: 13px;
+      color: #5a6172;
+      line-height: 1.55;
+    }
+
+    /* Done button */
+    .done-btn {
+      display: block;
+      width: 100%;
+      margin-top: 24px;
+      padding: 14px;
+      background: #4361ee;
+      color: white;
+      font-size: 15px;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .done-btn:hover { background: #3451d1; }
+    .done-btn:active { transform: scale(0.99); }
+
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <div class="header">
+      <img src="icons/icon-96.png" alt="" />
+      <h1>Welcome to Metric Glance</h1>
+      <p>Converts miles, pounds, temperatures, and more to metric on every page. Your manual corrections are always saved automatically.</p>
+    </div>
+
+    <div id="main-content">
+      <p class="section-label">Two optional extras</p>
+
+      <div class="card" id="card-log">
+        <div class="card-row">
+          <span class="card-name">Save more locally</span>
+          <label class="toggle" onclick="event.stopPropagation()">
+            <input type="checkbox" id="tog-log" checked />
+            <span class="track"></span>
+          </label>
+        </div>
+        <p class="what-label">What is this?</p>
+        <p class="card-desc">Also saves entries you hovered over and a sample of correct auto-detections. Gives the training set more variety. Everything stays on this device.</p>
+      </div>
+
+      <div class="card" id="card-share">
+        <div class="card-row">
+          <span class="card-name">Help improve detection</span>
+          <label class="toggle" onclick="event.stopPropagation()">
+            <input type="checkbox" id="tog-share" checked />
+            <span class="track"></span>
+          </label>
+        </div>
+        <p class="what-label">What is this?</p>
+        <p class="card-desc">Uploads your saved examples to a private backend to train a better unit detector. Only anonymized data is sent: no account, no full URLs, no personal information. You can turn this off anytime in Preferences.</p>
+      </div>
+
+      <button class="done-btn" id="done-btn">Done</button>
+    </div>
+
+    <div id="saved-msg" style="display:none; text-align:center; padding:32px 0 8px;">
+      <p style="font-size:22px; font-weight:700; margin-bottom:10px;">Your options have been saved.</p>
+      <p style="font-size:14px; color:#5a6172;">You can close this page now.</p>
+    </div>
+
+  </div>
+  <script src="welcome.js"></script>
+</body>
+</html>

@@ -16,6 +16,7 @@
     displayScales: {},
     hoverScales: {},
     catBase: { Speed: "km/h" },
+    shareData: false,
   };
 
   const CATS = {
@@ -60,11 +61,18 @@
   const $status = document.getElementById("status");
   const $example = document.getElementById("example");
   const $logsamples = document.getElementById("logsamples");
+  const $sharedata = document.getElementById("sharedata");
+  const $nudge = document.getElementById("share-nudge");
+  const $nudgeOn = document.getElementById("nudge-on");
   const $oom = document.getElementById("oom");
   const $dec = document.getElementById("dec");
   const $sep = document.getElementById("sep");
   const $tiers = document.getElementById("tiers");
   const $advbody = document.getElementById("advbody");
+
+  function updateNudge() {
+    $nudge.style.display = ($sharedata.checked && $logsamples.checked) ? "none" : "flex";
+  }
 
   function clampNum(x, lo, hi, dflt) {
     x = parseInt(x, 10);
@@ -242,6 +250,7 @@
       priceRounding: $enabled.checked,
       priceRoundCents: clampCents($cents.value),
       logSamples: $logsamples.checked,
+      shareData: $sharedata.checked,
       maxOrderOfMagnitude: clampNum($oom.value, 1, 12, 6),
       decimalPlaces: clampNum($dec.value, 0, 6, 2),
       thousandsSeparator: $sep.value,
@@ -258,6 +267,7 @@
       setTimeout(() => ($status.textContent = ""), 1200);
     });
     renderExample();
+    updateNudge();
   }
 
   api.storage.local.get(DEFAULTS).then((stored) => {
@@ -265,6 +275,8 @@
     $enabled.checked = !!s.priceRounding;
     $cents.value = clampCents(s.priceRoundCents);
     $logsamples.checked = !!s.logSamples;
+    $sharedata.checked = !!s.shareData;
+    updateNudge();
     $oom.value = clampNum(s.maxOrderOfMagnitude, 1, 12, 6);
     $dec.value = clampNum(s.decimalPlaces, 0, 6, 2);
     $sep.value = s.thousandsSeparator != null ? s.thousandsSeparator : ",";
@@ -282,6 +294,8 @@
 
   $enabled.addEventListener("change", save);
   $logsamples.addEventListener("change", save);
+  $sharedata.addEventListener("change", save);
+  $nudgeOn.addEventListener("click", () => { $logsamples.checked = true; $sharedata.checked = true; save(); });
   $oom.addEventListener("change", save);
   $dec.addEventListener("change", save);
   $sep.addEventListener("change", save);

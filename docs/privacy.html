@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy Policy - Metric Glance</title>
+  <style>
+    body {
+      font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 700px;
+      margin: 40px auto;
+      padding: 0 20px 60px;
+      color: #1f2430;
+    }
+    h1 { font-size: 24px; margin-bottom: 4px; }
+    h2 { font-size: 17px; margin-top: 36px; margin-bottom: 6px; }
+    p, li { color: #2e3342; }
+    .meta { color: #5a6172; font-size: 14px; margin-bottom: 32px; }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+    th { text-align: left; padding: 7px 10px; background: #f4f5f8; border: 1px solid #dde0e8; }
+    td { padding: 7px 10px; border: 1px solid #dde0e8; vertical-align: top; }
+    td:first-child { white-space: nowrap; font-family: monospace; font-size: 13px; color: #3451b2; }
+    ul { padding-left: 20px; }
+    li { margin-bottom: 4px; }
+    a { color: #3451b2; }
+  </style>
+</head>
+<body>
+
+<h1>Metric Glance Privacy Policy</h1>
+<p class="meta">Effective June 19, 2026</p>
+
+<p>Metric Glance converts imperial units and prices inline on pages you visit. All conversion and detection work happens locally in your browser. This policy describes the optional data collection feature that helps improve the detection model.</p>
+
+<h2>Data collection is off by default</h2>
+<p>Nothing is sent anywhere unless you turn on "Help improve detection" in Preferences. The extension functions fully without it. You can turn it off at any time.</p>
+
+<h2>What is sent when you opt in</h2>
+<p>Each uploaded record describes one unit or price span that was detected, hovered over, or corrected by you. The following fields are included:</p>
+
+<table>
+  <tr><th>Field</th><th>Description</th></tr>
+  <tr>
+    <td>span</td>
+    <td>The detected text (e.g., "5 miles"). Up to 200 characters.</td>
+  </tr>
+  <tr>
+    <td>label</td>
+    <td>The outcome category: "unit", "price", "not_a_conversion", or a correction label you applied.</td>
+  </tr>
+  <tr>
+    <td>tier</td>
+    <td>How the record was generated: "corrected" (you corrected it), "seen" (you hovered), or "auto" (detected automatically).</td>
+  </tr>
+  <tr>
+    <td>num, unit, unit_id</td>
+    <td>The parsed numeric value and unit identifier (e.g., num=5, unit="miles", unit_id="mi").</td>
+  </tr>
+  <tr>
+    <td>before, after</td>
+    <td>Text immediately before and after the span (up to ~50 words combined). No personally identifying text is targeted, but surrounding words are captured as written on the page.</td>
+  </tr>
+  <tr>
+    <td>sentence</td>
+    <td>The sentence containing the span, up to 300 characters.</td>
+  </tr>
+  <tr>
+    <td>heading</td>
+    <td>The nearest heading on the page, up to 120 characters.</td>
+  </tr>
+  <tr>
+    <td>title</td>
+    <td>The page title, up to 120 characters.</td>
+  </tr>
+  <tr>
+    <td>url</td>
+    <td>The hostname of the page only (e.g., "www.example.com"). Never the full URL, path, or query string.</td>
+  </tr>
+  <tr>
+    <td>lang</td>
+    <td>The language code declared by the page (e.g., "en").</td>
+  </tr>
+  <tr>
+    <td>locale</td>
+    <td>Your browser's locale setting (e.g., "en-US").</td>
+  </tr>
+  <tr>
+    <td>tag</td>
+    <td>The HTML element type the span appeared in (e.g., "p", "li", "td").</td>
+  </tr>
+  <tr>
+    <td>page_units</td>
+    <td>A list of unit types detected elsewhere on the same page (e.g., ["mi", "lb"]). Up to 40 entries.</td>
+  </tr>
+  <tr>
+    <td>span_start, span_end</td>
+    <td>Character offsets of the span within the page's text.</td>
+  </tr>
+  <tr>
+    <td>interacted</td>
+    <td>Whether you hovered or clicked the conversion (true/false).</td>
+  </tr>
+  <tr>
+    <td>seen</td>
+    <td>Whether the conversion tooltip was shown to you (true/false).</td>
+  </tr>
+  <tr>
+    <td>ts</td>
+    <td>Unix timestamp of when the example was logged locally.</td>
+  </tr>
+</table>
+
+<h2>The install ID</h2>
+<p>On first install the extension generates a random UUID and stores it in extension storage. This identifier is included with every upload. It is not linked to your browser account, Firefox profile, or any personal information. It is used only to deduplicate incoming records on the server and to enforce a daily upload cap per installation.</p>
+
+<h2>What is not collected</h2>
+<ul>
+  <li>Full URLs, page paths, query strings, or fragments</li>
+  <li>Passwords, form inputs, or credentials</li>
+  <li>Browsing history or a list of sites visited</li>
+  <li>Your IP address (Cloudflare may log it transiently per their own policy; we do not store it)</li>
+  <li>Any data from pages where the extension is not active</li>
+</ul>
+
+<h2>How the data is used</h2>
+<p>Uploaded records are stored in a private database and used to train and evaluate a token-classification model that will replace the extension's current regex-based detection engine. Records are not sold, shared with third parties, or used for advertising.</p>
+
+<h2>Retention</h2>
+<p>Records are kept until the detection model is trained and validated. After a model is trained and deployed, records used in that training round are deleted. Records will not be retained longer than two years regardless of model status.</p>
+
+<h2>How to opt out</h2>
+<p>Turn off "Help improve detection" in extension Preferences at any time; uploads stop immediately. To delete all locally saved examples, click Clear in the "Your corrections" section of Preferences. Records already sent to the server cannot be recalled, as they are not linked to any personal identifier that could be used to find them.</p>
+
+<h2>Changes to this policy</h2>
+<p>If we change what data is collected or how it is used, we will update this page and the extension version notes will describe the change.</p>
+
+<h2>Contact</h2>
+<p><a href="mailto:metric.glance@proton.me">metric.glance@proton.me</a></p>
+
+</body>
+</html>

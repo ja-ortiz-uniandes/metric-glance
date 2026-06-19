@@ -54,6 +54,7 @@
     catBase: { Speed: "km/h" }, // per-measurement base unit
     useEncoder: false, // becomes meaningful once a model is provided
     encoderModelUrl: "",
+    shareData: false,  // consent to upload training examples to the backend
   };
   const SAMPLE_RATE = 0.12; // fraction of correct detections logged when logSamples is on
   const DEFAULT_RULES = {

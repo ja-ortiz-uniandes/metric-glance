@@ -1,9 +1,15 @@
 {
   "manifest_version": 2,
   "name": "Metric Glance",
-  "version": "0.37.0",
+  "version": "0.38.0",
   "description": "Converts imperial units to metric and rounds large prices. Hover (desktop) or tap (mobile) the dotted text to see the original or correct it. Right-click a selection to teach it new conversions.",
-  "permissions": ["storage", "contextMenus"],
+  "permissions": [
+    "storage",
+    "tabs",
+    "contextMenus",
+    "alarms",
+    "https://mg-collect.metric-glance.workers.dev/*"
+  ],
   "commands": {
     "open-picker": {
       "suggested_key": { "default": "Ctrl+Alt+M", "mac": "Command+Alt+M" },
@@ -11,7 +17,7 @@
     }
   },
   "background": {
-    "scripts": ["background.js"],
+    "scripts": ["background.js", "mg-uploader.js"],
     "persistent": false
   },
   "options_ui": {
@@ -23,7 +29,8 @@
       "id": "metric-glance@cach-dies",
       "strict_min_version": "140.0",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": ["none"],
+        "optional": ["websiteContent"]
       }
     },
     "gecko_android": {

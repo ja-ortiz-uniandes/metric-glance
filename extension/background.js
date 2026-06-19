@@ -97,6 +97,13 @@
     });
   }
 
+  if (ext.runtime.onInstalled) {
+    ext.runtime.onInstalled.addListener((details) => {
+      if (details.reason !== "install") return;
+      ext.tabs.create({ url: ext.runtime.getURL("welcome.html") });
+    });
+  }
+
   ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg && msg.type === "mg-native-menus?") {
       sendResponse({ native: hasMenus });
