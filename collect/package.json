@@ -1,0 +1,18 @@
+{
+  "name": "metric-glance-collect",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker that receives anonymized training records from the Metric Glance extension.",
+  "private": true,
+  "scripts": {
+    "login": "wrangler login",
+    "db:create": "wrangler d1 create metric-glance",
+    "db:init": "wrangler d1 execute metric-glance --remote --file=./schema.sql",
+    "secret": "wrangler secret put MG_HMAC_SECRET",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "count": "wrangler d1 execute metric-glance --remote --command \"SELECT COUNT(*) AS n, MAX(received_at) AS last FROM submissions\""
+  },
+  "devDependencies": {
+    "wrangler": "^4.103.0"
+  }
+}

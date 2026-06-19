@@ -1,0 +1,15 @@
+name = "mg-collect"
+main = "worker.js"
+compatibility_date = "2026-01-07"
+
+# D1 binding. Create the database first:
+#   wrangler d1 create metric-glance
+# then paste the printed database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "metric-glance"
+database_id = "3bd689b6-26a8-466d-ad94-fd37b4d9677a"
+
+# The signing secret is NOT stored here. Set it once (interactive prompt):
+#   wrangler secret put MG_HMAC_SECRET
+# It must match CLIENT_SECRET in mg-uploader.js.
