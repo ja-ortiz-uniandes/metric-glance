@@ -2,6 +2,9 @@ name = "mg-collect"
 main = "worker.js"
 compatibility_date = "2026-01-07"
 
+workers_dev = true
+preview_urls = false
+
 # D1 binding. Create the database first:
 #   wrangler d1 create metric-glance
 # then paste the printed database_id below.
