@@ -1,6 +1,8 @@
 # Metric Glance
 
-A Firefox extension (desktop and Android) that converts US/imperial units to metric, and rounds awkward prices, directly on the page. Converted values get a dotted underline; hover them on desktop or tap them on mobile to see the original value, switch between similarly-named units, or open a searchable unit picker.
+A Firefox extension (desktop and Android) that converts non-metric units to metric, and rounds awkward prices, directly on the page. Converted values get a dotted underline; hover them on desktop or tap them on mobile to see the original value, switch between similarly-named units, or open a searchable unit picker.
+
+**[Install from Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/metric-glance/)**
 
 ## What it does
 
@@ -9,31 +11,17 @@ A Firefox extension (desktop and Android) that converts US/imperial units to met
 - Lets you correct anything: hover a converted value to pick a different interpretation (e.g. the three kinds of fluid ounce), mark a false positive, or browse the full unit list.
 - Works on pages that split a number and its unit across elements, and on offscreen/duplicated price markup (e.g. Amazon).
 
-## Install (preview)
+## Install
 
-Metric Glance isn't on the add-on store yet. It's signed by Mozilla and installs as a file. Needs **Firefox 140+** (desktop) or **Firefox for Android 142+**.
+Needs **Firefox 140+** (desktop) or **Firefox for Android 142+**.
 
-### Desktop (Windows, Mac, Linux)
-
-1. Download the latest `.xpi` from the [Releases page](https://github.com/ja-ortiz-uniandes/metric-glance/releases).
-2. Open Firefox and go to `about:addons`.
-3. Click the gear icon (top right) and choose **Install Add-on From File**.
-4. Select the `.xpi` you downloaded and accept the prompt.
-
-That's it. The add-on stays installed across restarts.
-
-### Firefox for Android
-
-1. Open the `.xpi` link from the [Releases page](https://github.com/ja-ortiz-uniandes/metric-glance/releases) in Firefox for Android.
-2. Tap it and confirm **Add to Firefox**.
+**[Install from addons.mozilla.org](https://addons.mozilla.org/en-US/firefox/addon/metric-glance/)**
 
 iPhone/iPad are not supported: Firefox on iOS can't run extensions (an Apple restriction).
 
 ### Using it
 
 Converted values get a dotted underline. Hover (desktop) or tap (mobile) to see the original, switch units, or fix a mistake. Press **Ctrl+Alt+M** (**Cmd+Alt+M** on Mac) to open the unit picker for selected text.
-
-> Preview build: no auto-update. Grab new versions from Releases when posted.
 
 ## How it works
 
@@ -47,7 +35,7 @@ Detection today is a **deterministic regex engine**, not a model. For each block
 2. Click **Load Temporary Add-on...** and choose `extension/manifest.json`.
 3. Visit any page, or the [live demo page](https://ja-ortiz-uniandes.github.io/metric-glance/). Click **Reload** in about:debugging after code changes, then hard-refresh the page.
 
-For Android testing run `web-ext run --source-dir extension --target=firefox-android` (or run `web-ext` from inside the `extension/` directory). Permanent distribution requires signing through addons.mozilla.org.
+For Android testing run `web-ext run --source-dir extension --target=firefox-android` (or run `web-ext` from inside the `extension/` directory).
 
 ## Usage
 
@@ -63,10 +51,13 @@ For Android testing run `web-ext run --source-dir extension --target=firefox-and
 | `manifest.json`               | Extension manifest (MV2): permissions, content script, background, the keyboard command.                                                  |
 | `converter.js`                | **The main code.** Content script: detection, conversion, the hover panel, the searchable picker, corrections, and training-data logging. |
 | `background.js`               | Builds the desktop right-click menu, handles the keyboard command, reports the current shortcut.                                          |
+| `mg-uploader.js`              | Background script: batches and uploads training records to the collection Worker (consent-gated).                                         |
+| `welcome.html` / `welcome.js` | First-run page: introduces the extension and lets the user configure data sharing.                                                        |
 | `options.html` / `options.js` | Settings page.                                                                                                                            |
 | `styles.css`                  | Underlines, panel, picker, and toolbar styles (picker follows Firefox's light/dark theme).                                                |
 | `icons/`                      | Toolbar/listing icons.                                                                                                                    |
 | `docs/index.html`             | The live demo / landing page published via GitHub Pages.                                                                                  |
+| `docs/privacy.html`           | [Privacy policy](https://ja-ortiz-uniandes.github.io/metric-glance/privacy.html).                                                        |
 | `CHANGELOG.md`                | Version-by-version history.                                                                                                               |
 
 The runtime files above live in the `extension/` directory, which is what gets packaged into the xpi. The `collect/` backend and the `docs/` demo sit alongside `extension/` in the repo but are never shipped in the add-on.
@@ -75,7 +66,9 @@ Plain JavaScript; there is no build step.
 
 ## Training data and privacy
 
-Corrections and (optionally) a sample of correct conversions are stored **locally** in the browser's extension storage on the user's own device. Nothing is transmitted anywhere, and there is no server. The data can be exported as JSON from the settings page by the person who owns that browser. If this is ever changed to transmit data off-device, it will require explicit user consent, a manifest data-collection declaration, and a privacy policy.
+Corrections and (optionally) a sample of correct conversions are stored locally in the browser's extension storage. On first install a welcome page lets you choose whether to share these examples with a private backend to help train a better detection model. You can change this at any time in Preferences.
+
+Data sent to the backend is anonymized: hostname only (never the full URL), text snippets from the page, and a random install ID not linked to any account. See the [privacy policy](https://ja-ortiz-uniandes.github.io/metric-glance/privacy.html) for the full field-by-field breakdown.
 
 ## Roadmap: a detection classifier
 
