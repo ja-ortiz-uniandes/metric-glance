@@ -4,3 +4,8 @@ package.json
 package-lock.json
 *.zip
 .DS_Store
+
+# Exported training data (raw records: install_id, hostnames). Never commit.
+train/data/
+*.sql
+!collect/schema.sql
