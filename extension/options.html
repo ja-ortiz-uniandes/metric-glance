@@ -87,11 +87,7 @@
     <button id="nudge-on" class="actionbtn" style="white-space:nowrap; flex-shrink:0; font-size:13px; padding:6px 10px;">Turn on</button>
   </div>
   <h1>Price rounding</h1>
-  <p class="hint">
-    Prices are rounded up to the next whole amount when they're within the
-    cents threshold below it, and shown with a dotted underline. Hover or tap
-    to see the exact price. Changes apply to pages after they reload.
-  </p>
+  <p class="hint">Rounds prices near a whole number up. Hover or tap the dotted value to see the exact price.</p>
 
   <div class="row">
     <label for="enabled">Round prices
@@ -102,9 +98,7 @@
 
   <div class="row">
     <label for="cents">Round up when within
-      <span class="sub">Cents (1 to 99). A price rounds up to the next whole
-        amount when it's this close to it. 1 rounds only prices ending in .99;
-        99 rounds anything with cents.</span>
+      <span class="sub" title="Cents (1–99): rounds up when within this many cents of the next whole number.">1 rounds only .99 prices; 99 rounds anything with cents.</span>
     </label>
     <span style="white-space:nowrap"><input type="number" id="cents" min="1" max="99" step="1" /> ¢</span>
   </div>
@@ -113,11 +107,7 @@
   <div id="status"></div>
 
   <h1 style="margin-top:22px">Number formatting</h1>
-  <p class="hint">
-    The extension shows the metric unit that reads most simply: no leading
-    "0.", fewest decimals, then fewest digits. So 0.62 m becomes "62 cm" and
-    551 ml stays "551 ml" instead of "0.55 L".
-  </p>
+  <p class="hint">Controls how metric values are displayed. e.g. 0.62 m becomes 62 cm, 551 ml stays 551 ml.</p>
   <div class="row">
     <label for="oom">Largest number of digits before switching to a bigger unit
       <span class="hint">e.g. at 6, up to 999,999 ml before it becomes L.</span>
@@ -140,36 +130,27 @@
 
   <div class="row" style="display:block; border-bottom:none">
     <label>Units
-      <span class="hint">Across all measurements: tick a prefix to show it inline (Display) and/or as an extra conversion in the hover panel (Hover). Any prefix works — the symbol is the prefix plus the base unit (e.g. mm, kPa). Speed and density use fixed units, set them in the per-measurement section.</span>
+      <span class="hint" title="Any prefix works — symbol is prefix + base unit (e.g. mm, kPa). Speed and density use fixed units; override them in the section below.">Choose which prefixes appear inline (Display) and in the hover panel (Hover).</span>
     </label>
     <div id="tiers" style="margin-top:6px"></div>
   </div>
   <details id="advanced" style="margin:2px 0 8px">
     <summary style="cursor:pointer; font-size:13px">Advanced: per-measurement override</summary>
-    <p class="hint">Override the choice above for one measurement. Display = shown inline (leave all off to follow the table above). Hover = shown as extra conversions in the hover panel.</p>
+    <p class="hint">Override the unit choice above for a specific measurement type.</p>
     <div id="advbody"></div>
   </details>
 
   <h1 style="margin-top:22px">Your corrections</h1>
-  <p class="hint">
-    When you mark something on a page (convert a missed value, or flag a wrong
-    one), it takes effect right away and is saved here as a labeled example.
-    Export the set to fine-tune the detection model later.
-  </p>
+  <p class="hint">Manual corrections take effect immediately and are saved as training examples.</p>
   <div class="row">
     <label for="logsamples">Also save hover and auto-detected entries
-      <span class="hint">Saves entries you hovered over (but did not correct)
-        and a small random sample of automatic detections. Gives the training
-        set more variety beyond corrections alone. Stored locally.</span>
+      <span class="hint" title="Gives the training set more variety beyond manual corrections alone. Stored locally only.">Also logs hovers and a sample of auto-detections.</span>
     </label>
     <input type="checkbox" id="logsamples" />
   </div>
   <div class="row">
     <label for="sharedata">Share data to improve detection
-      <span class="hint">Uploads your saved training examples to a private
-        backend so they can be used to train a better detection model. Only
-        anonymized examples are sent (no account, no full URLs). Off by
-        default. You can turn it off at any time.</span>
+      <span class="hint" title="No full URLs, no account. You can turn this off at any time.">Uploads anonymized examples to a private server to improve detection.</span>
     </label>
     <input type="checkbox" id="sharedata" />
   </div>
