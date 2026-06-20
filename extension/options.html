@@ -47,6 +47,13 @@
       width: 110px;
       box-sizing: border-box;
     }
+    input[type="text"] {
+      font-size: 15px;
+      padding: 6px 8px;
+      border: 1px solid #c6cad3;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
     input[type="checkbox"] {
       width: 20px;
       height: 20px;
@@ -139,6 +146,14 @@
     <p class="hint">Override the unit choice above for a specific measurement type.</p>
     <div id="advbody"></div>
   </details>
+
+  <h1 style="margin-top:22px">Disabled sites</h1>
+  <p class="hint">Metric Glance does not run on these sites. Add the current site from the toolbar button or the page's right-click menu, or type a hostname below.</p>
+  <div id="sites"></div>
+  <div class="row" style="border-bottom:none; gap:8px">
+    <input type="text" id="sitehost" placeholder="example.com" style="flex:1" autocomplete="off" spellcheck="false" />
+    <button id="siteadd" class="actionbtn">Add</button>
+  </div>
 
   <h1 style="margin-top:22px">Your corrections</h1>
   <p class="hint">Manual corrections take effect immediately and are saved as training examples.</p>

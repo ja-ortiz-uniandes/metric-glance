@@ -55,6 +55,7 @@
     useEncoder: false, // becomes meaningful once a model is provided
     encoderModelUrl: "",
     shareData: false,  // consent to upload training examples to the backend
+    disabledHosts: [], // hostnames where Metric Glance does not run at all
   };
   const SAMPLE_RATE = 0.12; // fraction of correct detections logged when logSamples is on
   const DEFAULT_RULES = {
@@ -1441,6 +1442,7 @@
   function rescan() {
     // Revert nothing; just process text that became convertible under new
     // rules. Newly-blocked spans are handled by revertSpan() at click time.
+    if (hostDisabled()) return;
     scan(document.body);
   }
 
@@ -2614,10 +2616,27 @@
   // ---------------------------------------------------------------
   // Startup
   // ---------------------------------------------------------------
+  let observer = null;   // page MutationObserver, or null when disabled here
+  let started = false;   // whether scanning/observing is currently active
+
+  // A host is disabled when its (normalized) hostname is on the user's list.
+  function normHost(h) {
+    return String(h || "").trim().toLowerCase().replace(/\.$/, "");
+  }
+  function hostDisabled() {
+    const here = normHost(location.hostname);
+    if (!here) return false;
+    return (settings.disabledHosts || []).some((h) => normHost(h) === here);
+  }
+  // Live teardown: undo every conversion this page currently shows.
+  function revertAll() {
+    document.querySelectorAll("." + MARK_CLASS).forEach((s) => revertSpan(s));
+  }
+
   function startObserver() {
     let pending = null;
     const queue = new Set();
-    const observer = new MutationObserver((mutations) => {
+    observer = new MutationObserver((mutations) => {
       for (const m of mutations) for (const node of m.addedNodes) queue.add(node);
       if (pending) return;
       pending = setTimeout(() => {
@@ -2633,9 +2652,15 @@
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
+  function stopObserver() {
+    if (observer) { observer.disconnect(); observer = null; }
+  }
 
   function start() {
     rebuildRuleSets();
+    // Rules are built even when disabled, so toggling back on activates cleanly.
+    if (hostDisabled() || started) return;
+    started = true;
     scan(document.body);
     startObserver();
     loadEncoder();
@@ -2659,6 +2684,11 @@
       let touched = false;
       for (const key of Object.keys(DEFAULT_SETTINGS)) {
         if (changes[key]) { settings[key] = changes[key].newValue; touched = true; }
+      }
+      // React live when this site is toggled on/off the disabled list.
+      if (changes.disabledHosts) {
+        if (hostDisabled()) { stopObserver(); started = false; revertAll(); }
+        else { start(); }
       }
       if (changes.mgRules) { rules = { ...DEFAULT_RULES, ...changes.mgRules.newValue }; rebuildRuleSets(); touched = true; }
       if (touched) rescan();

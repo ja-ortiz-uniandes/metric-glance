@@ -349,4 +349,76 @@
   });
 
   renderCounts();
+
+  // ---- Disabled sites ----
+  const $sites = document.getElementById("sites");
+  const $sitehost = document.getElementById("sitehost");
+  const $siteadd = document.getElementById("siteadd");
+
+  // Accept a pasted URL or a bare hostname; reduce to a normalized hostname.
+  function normHost(h) {
+    return String(h || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^[a-z]+:\/\//, "")
+      .replace(/\/.*$/, "")
+      .replace(/\.$/, "");
+  }
+
+  function renderSites() {
+    api.storage.local.get({ disabledHosts: [] }).then((r) => {
+      const list = (r.disabledHosts || []).slice();
+      $sites.textContent = "";
+      if (!list.length) {
+        const p = document.createElement("p");
+        p.className = "hint";
+        p.style.margin = "0 0 8px";
+        p.textContent = "No disabled sites.";
+        $sites.appendChild(p);
+        return;
+      }
+      list.forEach((host) => {
+        const row = document.createElement("div");
+        row.className = "row";
+        const span = document.createElement("span");
+        span.textContent = host;
+        span.style.cssText = "flex:1; word-break:break-all";
+        const btn = document.createElement("button");
+        btn.className = "actionbtn danger";
+        btn.textContent = "Remove";
+        btn.addEventListener("click", () => removeSite(host));
+        row.appendChild(span);
+        row.appendChild(btn);
+        $sites.appendChild(row);
+      });
+    });
+  }
+  function removeSite(host) {
+    const h = normHost(host);
+    api.storage.local.get({ disabledHosts: [] }).then((r) => {
+      const list = (r.disabledHosts || []).filter((x) => normHost(x) !== h);
+      api.storage.local.set({ disabledHosts: list }).then(renderSites);
+    });
+  }
+  function addSite() {
+    const h = normHost($sitehost.value);
+    if (!h) return;
+    api.storage.local.get({ disabledHosts: [] }).then((r) => {
+      const list = (r.disabledHosts || []).slice();
+      if (!list.some((x) => normHost(x) === h)) list.push(h);
+      api.storage.local.set({ disabledHosts: list }).then(() => {
+        $sitehost.value = "";
+        renderSites();
+      });
+    });
+  }
+  $siteadd.addEventListener("click", addSite);
+  $sitehost.addEventListener("keydown", (e) => { if (e.key === "Enter") addSite(); });
+
+  // Stay in sync when the list is changed from the toolbar/menu while open.
+  api.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.disabledHosts) renderSites();
+  });
+
+  renderSites();
 })();
