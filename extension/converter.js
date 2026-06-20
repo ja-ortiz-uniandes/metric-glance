@@ -62,6 +62,8 @@
     blockUnits: [],
     blockPrices: [],
     interpretations: {}, // norm(surface) -> variant id, e.g. "14 pounds" -> "gbp"
+    forceUnits: {},      // norm(surface) -> unit id: re-apply a "convert as" correction on reload
+    forcePrices: [],     // norm(surface): re-apply a "round as price" correction on reload
   };
 
   let settings = { ...DEFAULT_SETTINGS };
@@ -69,6 +71,7 @@
   const ruleSets = {
     blockUnits: new Set(),
     blockPrices: new Set(),
+    forcePrices: new Set(),
   };
 
   function rebuildRuleSets() {
@@ -978,7 +981,14 @@
   // applicable variant.
   function variantFor(c) {
     const vs = applicableVariants(c);
-    const id = rules.interpretations && rules.interpretations[norm(c.full)];
+    const key = norm(c.full);
+    // A persisted "convert as" correction wins outright, even across dimensions.
+    const forcedId = rules.forceUnits && rules.forceUnits[key];
+    if (forcedId) {
+      const fv = REG_BY_ID[forcedId] || VARIANT_BY_ID[forcedId];
+      if (fv && typeof fv.toMetric === "function") return fv;
+    }
+    const id = rules.interpretations && rules.interpretations[key];
     if (id) {
       const v = vs.find((x) => x.id === id);
       if (v) return v;
@@ -1029,13 +1039,44 @@
     return v.fmt(v.toMetric(c.value));
   }
 
+  function escapeRe(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  // Re-detect persisted "convert as" surfaces the regex engine does not find on
+  // its own, so those corrections survive a reload. Surfaces already covered by
+  // a regex candidate are left alone (variantFor applies the forced unit there).
+  function appendForcedUnitCandidates(text, candidates) {
+    const fu = rules.forceUnits;
+    if (!fu) return;
+    for (const key in fu) {
+      const unit = UNITS.find((u) => u.variants.some((v) => v.id === fu[key]));
+      if (!unit) continue;
+      const pat = key.split(/\s+/).map(escapeRe).join("\\s+");
+      let re;
+      try { re = new RegExp("(?<![\\w$£€¥₹¢])" + pat + "(?![\\w])", "gi"); } catch (e) { continue; }
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const full = m[0];
+        if (!full) { re.lastIndex++; continue; }
+        const start = m.index, end = m.index + full.length;
+        if (candidates.some((c) => c.start < end && c.end > start)) continue; // already detected
+        const nm = full.match(/-?\d[\d,]*(?:\.\d+)?/);
+        if (!nm) continue;
+        const value = parseFloat(nm[0].replace(/,/g, ""));
+        if (!isFinite(value)) continue;
+        candidates.push({ start, end, full, kind: "unit", value, unit, unitText: full });
+      }
+    }
+  }
+
   // Apply settings + user rules to the raw candidate list.
   function filterCandidates(text, candidates) {
     let list = candidates.filter((c) => {
       const key = norm(c.full);
       if (c.kind === "price") {
         if (ruleSets.blockPrices.has(key)) return false;
-        c.forced = false;
+        c.forced = ruleSets.forcePrices.has(key);
         if (!settings.priceRounding && !c.forced) return false;
       } else {
         if (ruleSets.blockUnits.has(key)) return false;
@@ -1144,7 +1185,9 @@
     }
     if (text.length < 2 || !/\d/.test(text)) return;
 
-    const chosen = filterCandidates(text, proposeSpans(text));
+    const candidates = proposeSpans(text);
+    appendForcedUnitCandidates(text, candidates);
+    const chosen = filterCandidates(text, candidates);
     if (!chosen.length) return;
 
     // Apply right-to-left so earlier matches' node offsets stay valid after
@@ -1421,7 +1464,7 @@
 
     const key = norm(priceStr);
     if (ruleSets.blockPrices.has(key)) return false;
-    const forced = false;
+    const forced = ruleSets.forcePrices.has(key);
     if (!settings.priceRounding && !forced) return false;
     const disp = renderDisplay({ kind: "price", value, symbol, full: priceStr, forced });
     if (!disp || disp === priceStr) return false;
@@ -1457,6 +1500,39 @@
     persistRules();
   }
 
+  // A correction is only safe to persist and re-apply when its surface is more
+  // than a bare number: re-applying a lone "5" everywhere on reload would
+  // mis-convert unrelated numbers. Requiring a letter or currency symbol keeps
+  // re-application as specific as the auto-detector already is ("14 pounds",
+  // "$12.50", "5 sticks"). Bare-number corrections still apply in the session.
+  function isReusableSurface(s) {
+    return /[a-z$£€¥₹¢]/i.test(String(s || ""));
+  }
+  // Persist a "convert as" correction so it re-applies on reload, superseding
+  // any prior block or interpretation on the same surface.
+  function setForceUnit(surface, unitId) {
+    if (!isReusableSurface(surface)) return;
+    const key = norm(surface);
+    if (!key) return;
+    if (!rules.forceUnits) rules.forceUnits = {};
+    rules.forceUnits[key] = unitId;
+    rules.blockUnits = (rules.blockUnits || []).filter((r) => norm(r) !== key);
+    if (rules.interpretations) delete rules.interpretations[key];
+    rebuildRuleSets();
+    persistRules();
+  }
+  // Persist a "round as price" correction so it re-applies on reload.
+  function setForcePrice(surface) {
+    if (!isReusableSurface(surface)) return;
+    const key = norm(surface);
+    if (!key) return;
+    if (!rules.forcePrices) rules.forcePrices = [];
+    if (!rules.forcePrices.map(norm).includes(key)) rules.forcePrices.push(String(surface).trim());
+    rules.blockPrices = (rules.blockPrices || []).filter((r) => norm(r) !== key);
+    rebuildRuleSets();
+    persistRules();
+  }
+
   // Re-express an already-converted span as a different unit in place
   // (used by the hover panel's alternative options). Keeps the original
   // fragment so revert still works; logs the choice as training data.
@@ -1473,6 +1549,7 @@
     span.setAttribute("data-variant", unitId);
     span.setAttribute("aria-label", `${span.textContent}, originally ${original}, activate to review`);
     logTrainingExample("interpretation:" + unitId, original, span.parentElement ? span.parentElement.textContent : original, { node: span, unitId: unitId, interacted: true });
+    setForceUnit(original, unitId);
     return true;
   }
 
@@ -1572,6 +1649,7 @@
         cleanupEmptyInline(span.nextSibling, "next");
         ensureSpacing(span);
         logTrainingExample("convert-as:" + unitId, c.full, ctxText, { interacted: true, node: ctxEl, unitId });
+        setForceUnit(c.full, unitId);
         spans.push(span);
       }
       return spans;
@@ -1611,6 +1689,7 @@
     ensureSpacing(span);
 
     logTrainingExample("convert-as:" + unitId, selText, ctxText, { interacted: true, node: ctxEl, unitId });
+    setForceUnit(selText, unitId);
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -1689,6 +1768,7 @@
     ensureSpacing(span);
 
     logTrainingExample("price", priceStr || selText, priceCtx, { interacted: true, node: _ctxEl, unitId: "price" });
+    if (force) setForcePrice(priceStr || selText);
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -1712,6 +1792,7 @@
     span.removeAttribute("data-variant");
     span.setAttribute("aria-label", `${disp}, originally ${original}, activate to review`);
     logTrainingExample("price", original, span.parentElement ? span.parentElement.textContent : original, { node: span, unitId: "price", interacted: true });
+    if (force) setForcePrice(original);
     return { ok: true };
   }
 
@@ -1719,6 +1800,10 @@
   function markFalsePositive(span) {
     const original = span.getAttribute("data-original");
     const kind = span.getAttribute("data-kind");
+    const fkey = norm(original);
+    // A block overrides any earlier "convert as" / "round as price" on this surface.
+    if (rules.forceUnits) delete rules.forceUnits[fkey];
+    if (rules.forcePrices) rules.forcePrices = rules.forcePrices.filter((r) => norm(r) !== fkey);
     addRule(kind === "price" ? "blockPrices" : "blockUnits", original);
     rebuildRuleSets();
     persistRules();
@@ -1749,9 +1834,11 @@
   // (e.g. "14 pounds" is money, or stone, not lb). Stored per surface form.
   function setInterpretation(original, variantId, context) {
     if (!rules.interpretations) rules.interpretations = {};
-    rules.interpretations[norm(original)] = variantId;
-    // an interpretation overrides any block on the same surface
-    rules.blockUnits = rules.blockUnits.filter((r) => norm(r) !== norm(original));
+    const ikey = norm(original);
+    rules.interpretations[ikey] = variantId;
+    // an interpretation overrides any block or forced unit on the same surface
+    rules.blockUnits = rules.blockUnits.filter((r) => norm(r) !== ikey);
+    if (rules.forceUnits) delete rules.forceUnits[ikey];
     rebuildRuleSets();
     persistRules();
     logTrainingExample("interpretation:" + variantId, original, context || "", { unitId: variantId, interacted: true });
