@@ -58,34 +58,116 @@
     disabledHosts: [], // hostnames where Metric Glance does not run at all
   };
   const SAMPLE_RATE = 0.12; // fraction of correct detections logged when logSamples is on
-  const DEFAULT_RULES = {
-    blockUnits: [],
-    blockPrices: [],
-    interpretations: {}, // norm(surface) -> variant id, e.g. "14 pounds" -> "gbp"
-    forceUnits: {},      // norm(surface) -> unit id: re-apply a "convert as" correction on reload
-    forcePrices: [],     // norm(surface): re-apply a "round as price" correction on reload
-  };
+  // Corrections are stored per-hostname under DEFAULT_RULES.hosts, never global.
+  const DEFAULT_RULES = { hosts: {} };
 
   let settings = { ...DEFAULT_SETTINGS };
-  let rules = { ...DEFAULT_RULES };
-  const ruleSets = {
-    blockUnits: new Set(),
-    blockPrices: new Set(),
-    forcePrices: new Set(),
-  };
-
-  function rebuildRuleSets() {
-    for (const k of Object.keys(ruleSets)) {
-      ruleSets[k] = new Set((rules[k] || []).map(norm));
-    }
-  }
+  let rules = { hosts: {} };
 
   function norm(s) {
     return String(s).trim().toLowerCase().replace(/\s+/g, " ");
   }
 
+  // ---------------------------------------------------------------
+  // Corrections (per-site, anchored to one occurrence)
+  //
+  // Every manual correction is permanent but LOCAL: stored under the current
+  // hostname and anchored to the specific occurrence it was made on, by keeping
+  // a normalized window of the page text on each side. On reload it re-applies
+  // only where the same surface appears in the same surrounding text, so it
+  // never leaks to other sites, nor to other occurrences of the same text on
+  // the page. Types: block (not a conversion), forceUnit (convert as a unit),
+  // forcePrice (round as a price).
+  // ---------------------------------------------------------------
+  const HOST = String(location.hostname || "").trim().toLowerCase().replace(/\.$/, "");
+  const CTX_WIN = 24; // chars of surrounding context kept on each side
+  const EMPTY_BUCKET = { block: [], forceUnit: [], forcePrice: [] };
+
+  function bucket(create) {
+    if (!rules.hosts) rules.hosts = {};
+    let b = rules.hosts[HOST];
+    if (!b && create) { b = { block: [], forceUnit: [], forcePrice: [] }; rules.hosts[HOST] = b; }
+    if (b) { b.block = b.block || []; b.forceUnit = b.forceUnit || []; b.forcePrice = b.forcePrice || []; }
+    return b || EMPTY_BUCKET;
+  }
   function persistRules() {
     if (storage) storage.set({ mgRules: rules });
+  }
+
+  // --- occurrence anchoring -------------------------------------------------
+  function winBefore(text, start) { return norm(text.slice(Math.max(0, start - CTX_WIN), start)); }
+  function winAfter(text, end) { return norm(text.slice(end, end + CTX_WIN)); }
+  // A side matches when either string is a suffix/prefix of the other (the
+  // write-time and scan-time windows are gathered differently, so lengths and
+  // outer edges can differ; only the text nearest the surface must coincide).
+  function tailMatch(a, b) { if (!b) return true; if (!a) return false; return a.endsWith(b) || b.endsWith(a); }
+  function headMatch(a, b) { if (!b) return true; if (!a) return false; return a.startsWith(b) || b.startsWith(a); }
+  function occMatches(rec, surface, text, start, end) {
+    return rec.surface === surface &&
+      tailMatch(winBefore(text, start), rec.before) &&
+      headMatch(winAfter(text, end), rec.after);
+  }
+  function blockMatch(surface, text, start, end) {
+    return bucket(false).block.some((r) => occMatches(r, surface, text, start, end));
+  }
+  function forcePriceMatch(surface, text, start, end) {
+    return bucket(false).forcePrice.some((r) => occMatches(r, surface, text, start, end));
+  }
+  function forceUnitMatch(surface, text, start, end) {
+    const r = bucket(false).forceUnit.find((x) => occMatches(x, surface, text, start, end));
+    return r ? r.unitId : null;
+  }
+  // Match an occurrence given a DOM node rather than linear text+offsets, for
+  // the split-price path where the price is spread across elements.
+  function occMatchesNode(rec, surface, node) {
+    if (rec.surface !== norm(surface)) return false;
+    const a = anchorFor(node, surface);
+    return tailMatch(a.before, rec.before) && headMatch(a.after, rec.after);
+  }
+
+  // --- writing a correction (anchor computed from the live DOM) -------------
+  function escapeRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+  function blockAncestor(node) {
+    let el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    while (el && el.parentElement && isInlineEl(el)) el = el.parentElement;
+    return el || node.parentElement || node;
+  }
+  // Build the {surface, before, after} anchor for a span (or wrapper) sitting in
+  // the page, by reading the surrounding text of its nearest block ancestor.
+  function anchorFor(node, surface) {
+    let before = "", after = "", seen = false;
+    const block = blockAncestor(node);
+    try {
+      const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+      let t;
+      while ((t = w.nextNode())) {
+        if (node.contains ? node.contains(t) : node === t) { seen = true; continue; }
+        if (!seen) before += (t.nodeValue || "");
+        else after += (t.nodeValue || "");
+      }
+    } catch (e) { /* detached node; fall back to empty windows */ }
+    return { surface: norm(surface), before: norm(before).slice(-CTX_WIN * 2), after: norm(after).slice(0, CTX_WIN * 2) };
+  }
+  function sameOcc(a, b) { return a.surface === b.surface && a.before === b.before && a.after === b.after; }
+  function clearOcc(b, rec) {
+    b.block = b.block.filter((r) => !sameOcc(r, rec));
+    b.forceUnit = b.forceUnit.filter((r) => !sameOcc(r, rec));
+    b.forcePrice = b.forcePrice.filter((r) => !sameOcc(r, rec));
+  }
+  function recordForceUnit(node, surface, unitId) {
+    const rec = anchorFor(node, surface);
+    if (!rec.surface) return;
+    const b = bucket(true); clearOcc(b, rec); b.forceUnit.push({ ...rec, unitId }); persistRules();
+  }
+  function recordForcePrice(node, surface) {
+    const rec = anchorFor(node, surface);
+    if (!rec.surface) return;
+    const b = bucket(true); clearOcc(b, rec); b.forcePrice.push(rec); persistRules();
+  }
+  function recordBlock(node, surface) {
+    const rec = anchorFor(node, surface);
+    if (!rec.surface) return;
+    const b = bucket(true); clearOcc(b, rec); b.block.push(rec); persistRules();
   }
 
   // A training example captures everything a token-classification encoder
@@ -976,22 +1058,14 @@
     return c.unit.variants.filter((v) => !v.surfaces || v.surfaces.test(ut));
   }
 
-  // Pick the interpretation variant for a candidate: a stored interpretation
-  // rule for this exact surface form (if still applicable), else the first
-  // applicable variant.
+  // Pick the variant for a candidate: a per-occurrence "convert as" correction
+  // (c.forceUnitId, set during scanning) wins outright, even across dimensions;
+  // otherwise the first applicable variant.
   function variantFor(c) {
     const vs = applicableVariants(c);
-    const key = norm(c.full);
-    // A persisted "convert as" correction wins outright, even across dimensions.
-    const forcedId = rules.forceUnits && rules.forceUnits[key];
-    if (forcedId) {
-      const fv = REG_BY_ID[forcedId] || VARIANT_BY_ID[forcedId];
+    if (c.forceUnitId) {
+      const fv = REG_BY_ID[c.forceUnitId] || VARIANT_BY_ID[c.forceUnitId];
       if (fv && typeof fv.toMetric === "function") return fv;
-    }
-    const id = rules.interpretations && rules.interpretations[key];
-    if (id) {
-      const v = vs.find((x) => x.id === id);
-      if (v) return v;
     }
     return vs[0] || c.unit.variants[0];
   }
@@ -1039,20 +1113,15 @@
     return v.fmt(v.toMetric(c.value));
   }
 
-  function escapeRe(s) {
-    return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-
   // Re-detect persisted "convert as" surfaces the regex engine does not find on
-  // its own, so those corrections survive a reload. Surfaces already covered by
-  // a regex candidate are left alone (variantFor applies the forced unit there).
+  // its own, so those corrections survive a reload. Only the anchored occurrence
+  // is matched; surfaces already covered by a regex candidate are left alone
+  // (filterCandidates applies the forced unit to those via forceUnitMatch).
   function appendForcedUnitCandidates(text, candidates) {
-    const fu = rules.forceUnits;
-    if (!fu) return;
-    for (const key in fu) {
-      const unit = UNITS.find((u) => u.variants.some((v) => v.id === fu[key]));
-      if (!unit) continue;
-      const pat = key.split(/\s+/).map(escapeRe).join("\\s+");
+    const recs = bucket(false).forceUnit;
+    if (!recs.length) return;
+    for (const rec of recs) {
+      const pat = rec.surface.split(/\s+/).map(escapeRe).join("\\s+");
       let re;
       try { re = new RegExp("(?<![\\w$£€¥₹¢])" + pat + "(?![\\w])", "gi"); } catch (e) { continue; }
       let m;
@@ -1060,26 +1129,29 @@
         const full = m[0];
         if (!full) { re.lastIndex++; continue; }
         const start = m.index, end = m.index + full.length;
+        if (!occMatches(rec, rec.surface, text, start, end)) continue; // different occurrence
         if (candidates.some((c) => c.start < end && c.end > start)) continue; // already detected
+        const unit = UNITS.find((u) => u.variants.some((v) => v.id === rec.unitId));
+        if (!unit) continue;
         const nm = full.match(/-?\d[\d,]*(?:\.\d+)?/);
         if (!nm) continue;
         const value = parseFloat(nm[0].replace(/,/g, ""));
         if (!isFinite(value)) continue;
-        candidates.push({ start, end, full, kind: "unit", value, unit, unitText: full });
+        candidates.push({ start, end, full, kind: "unit", value, unit, unitText: full, forceUnitId: rec.unitId });
       }
     }
   }
 
-  // Apply settings + user rules to the raw candidate list.
+  // Apply settings + user corrections to the raw candidate list.
   function filterCandidates(text, candidates) {
     let list = candidates.filter((c) => {
-      const key = norm(c.full);
+      const surface = norm(c.full);
+      if (blockMatch(surface, text, c.start, c.end)) return false; // user marked this occurrence not-a-conversion
       if (c.kind === "price") {
-        if (ruleSets.blockPrices.has(key)) return false;
-        c.forced = ruleSets.forcePrices.has(key);
+        c.forced = c.forced || forcePriceMatch(surface, text, c.start, c.end);
         if (!settings.priceRounding && !c.forced) return false;
-      } else {
-        if (ruleSets.blockUnits.has(key)) return false;
+      } else if (!c.forceUnitId) {
+        c.forceUnitId = forceUnitMatch(surface, text, c.start, c.end) || null;
       }
       return true;
     });
@@ -1146,6 +1218,8 @@
     span.textContent = c.display;
     span.setAttribute("data-original", c.full.trim());
     span.setAttribute("data-kind", c.kind);
+    // Record a re-applied "convert as" unit so the hover panel highlights it.
+    if (c.forceUnitId) span.setAttribute("data-variant", c.forceUnitId);
     span.setAttribute("tabindex", "0");
     span.setAttribute("role", "button");
     span.setAttribute("aria-label", `${c.display}, originally ${c.full.trim()}, activate to review`);
@@ -1462,9 +1536,8 @@
       value = parseFloat(m[2].replace(/,/g, "")) + parseFloat("0." + m[3]);
     }
 
-    const key = norm(priceStr);
-    if (ruleSets.blockPrices.has(key)) return false;
-    const forced = ruleSets.forcePrices.has(key);
+    if (bucket(false).block.some((r) => occMatchesNode(r, priceStr, wrapper))) return false;
+    const forced = bucket(false).forcePrice.some((r) => occMatchesNode(r, priceStr, wrapper));
     if (!settings.priceRounding && !forced) return false;
     const disp = renderDisplay({ kind: "price", value, symbol, full: priceStr, forced });
     if (!disp || disp === priceStr) return false;
@@ -1490,48 +1563,8 @@
   }
 
   // ---------------------------------------------------------------
-  // Corrections
+  // Corrections (recorded per-occurrence; see the corrections block above)
   // ---------------------------------------------------------------
-  function addRule(listName, value) {
-    const key = norm(value);
-    if (!key) return;
-    if (!rules[listName].map(norm).includes(key)) rules[listName].push(value.trim());
-    rebuildRuleSets();
-    persistRules();
-  }
-
-  // A correction is only safe to persist and re-apply when its surface is more
-  // than a bare number: re-applying a lone "5" everywhere on reload would
-  // mis-convert unrelated numbers. Requiring a letter or currency symbol keeps
-  // re-application as specific as the auto-detector already is ("14 pounds",
-  // "$12.50", "5 sticks"). Bare-number corrections still apply in the session.
-  function isReusableSurface(s) {
-    return /[a-z$£€¥₹¢]/i.test(String(s || ""));
-  }
-  // Persist a "convert as" correction so it re-applies on reload, superseding
-  // any prior block or interpretation on the same surface.
-  function setForceUnit(surface, unitId) {
-    if (!isReusableSurface(surface)) return;
-    const key = norm(surface);
-    if (!key) return;
-    if (!rules.forceUnits) rules.forceUnits = {};
-    rules.forceUnits[key] = unitId;
-    rules.blockUnits = (rules.blockUnits || []).filter((r) => norm(r) !== key);
-    if (rules.interpretations) delete rules.interpretations[key];
-    rebuildRuleSets();
-    persistRules();
-  }
-  // Persist a "round as price" correction so it re-applies on reload.
-  function setForcePrice(surface) {
-    if (!isReusableSurface(surface)) return;
-    const key = norm(surface);
-    if (!key) return;
-    if (!rules.forcePrices) rules.forcePrices = [];
-    if (!rules.forcePrices.map(norm).includes(key)) rules.forcePrices.push(String(surface).trim());
-    rules.blockPrices = (rules.blockPrices || []).filter((r) => norm(r) !== key);
-    rebuildRuleSets();
-    persistRules();
-  }
 
   // Re-express an already-converted span as a different unit in place
   // (used by the hover panel's alternative options). Keeps the original
@@ -1549,7 +1582,7 @@
     span.setAttribute("data-variant", unitId);
     span.setAttribute("aria-label", `${span.textContent}, originally ${original}, activate to review`);
     logTrainingExample("interpretation:" + unitId, original, span.parentElement ? span.parentElement.textContent : original, { node: span, unitId: unitId, interacted: true });
-    setForceUnit(original, unitId);
+    recordForceUnit(span, original, unitId);
     return true;
   }
 
@@ -1649,7 +1682,7 @@
         cleanupEmptyInline(span.nextSibling, "next");
         ensureSpacing(span);
         logTrainingExample("convert-as:" + unitId, c.full, ctxText, { interacted: true, node: ctxEl, unitId });
-        setForceUnit(c.full, unitId);
+        recordForceUnit(span, c.full, unitId);
         spans.push(span);
       }
       return spans;
@@ -1689,7 +1722,7 @@
     ensureSpacing(span);
 
     logTrainingExample("convert-as:" + unitId, selText, ctxText, { interacted: true, node: ctxEl, unitId });
-    setForceUnit(selText, unitId);
+    recordForceUnit(span, selText, unitId);
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -1768,7 +1801,7 @@
     ensureSpacing(span);
 
     logTrainingExample("price", priceStr || selText, priceCtx, { interacted: true, node: _ctxEl, unitId: "price" });
-    if (force) setForcePrice(priceStr || selText);
+    if (force) recordForcePrice(span, priceStr || selText);
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -1792,26 +1825,20 @@
     span.removeAttribute("data-variant");
     span.setAttribute("aria-label", `${disp}, originally ${original}, activate to review`);
     logTrainingExample("price", original, span.parentElement ? span.parentElement.textContent : original, { node: span, unitId: "price", interacted: true });
-    if (force) setForcePrice(original);
+    if (force) recordForcePrice(span, original);
     return { ok: true };
   }
 
-  // User marked an existing conversion as wrong.
+  // User marked an existing conversion as wrong. Record a per-occurrence block
+  // (anchored before we revert, while the span is still in the page) and revert
+  // just this span; other identical text elsewhere is untouched.
   function markFalsePositive(span) {
     const original = span.getAttribute("data-original");
-    const kind = span.getAttribute("data-kind");
-    const fkey = norm(original);
-    // A block overrides any earlier "convert as" / "round as price" on this surface.
-    if (rules.forceUnits) delete rules.forceUnits[fkey];
-    if (rules.forcePrices) rules.forcePrices = rules.forcePrices.filter((r) => norm(r) !== fkey);
-    addRule(kind === "price" ? "blockPrices" : "blockUnits", original);
-    rebuildRuleSets();
-    persistRules();
-
+    recordBlock(span, original);
     const parentText = span.parentElement ? span.parentElement.textContent : "";
     const ctx = parentText.replace(span.textContent, original);
     logTrainingExample("not_a_conversion", original, ctx, { node: span, unitId: span.getAttribute("data-variant") || null });
-    revertAllMatching(original);
+    revertSpan(span);
   }
 
   function revertSpan(span) {
@@ -1823,28 +1850,20 @@
       span.parentNode.replaceChild(document.createTextNode(span.getAttribute("data-original")), span);
     }
   }
-  function revertAllMatching(original) {
-    const key = norm(original);
-    document.querySelectorAll("." + MARK_CLASS).forEach((s) => {
-      if (norm(s.getAttribute("data-original")) === key) revertSpan(s);
-    });
-  }
 
-  // User chose a different interpretation for an ambiguous quantity
-  // (e.g. "14 pounds" is money, or stone, not lb). Stored per surface form.
-  function setInterpretation(original, variantId, context) {
-    if (!rules.interpretations) rules.interpretations = {};
-    const ikey = norm(original);
-    rules.interpretations[ikey] = variantId;
-    // an interpretation overrides any block or forced unit on the same surface
-    rules.blockUnits = rules.blockUnits.filter((r) => norm(r) !== ikey);
-    if (rules.forceUnits) delete rules.forceUnits[ikey];
-    rebuildRuleSets();
-    persistRules();
+  // User chose a different interpretation for an ambiguous quantity from the
+  // hover panel (e.g. "14 pounds" is money, not mass). Anchored to this one
+  // span: re-render it as the chosen unit, or, when the reading has no metric
+  // form (money "kept as written"), record a block and revert just this span.
+  function setInterpretation(span, original, variantId, context) {
+    const v = REG_BY_ID[variantId] || VARIANT_BY_ID[variantId];
     logTrainingExample("interpretation:" + variantId, original, context || "", { unitId: variantId, interacted: true });
-    // revert existing spans for this surface, then rescan so they re-render
-    revertAllMatching(original);
-    rescan();
+    if (!v || v.money || typeof v.toMetric !== "function") {
+      recordBlock(span, original);
+      revertSpan(span);
+    } else {
+      reconvertSpan(span, variantId); // re-renders in place and records the forced unit
+    }
   }
 
   // Recover {kind, unit, value, symbol, full} from a span's original text,
@@ -2039,7 +2058,7 @@
               options.push({
                 id: variant.id, name: variant.label, info: infoFor(variant), current: variant.id === currentId,
                 preview: "kept as written",
-                onClick: () => { setInterpretation(original, variant.id, ctx); hidePanel(); },
+                onClick: () => { setInterpretation(span, original, variant.id, ctx); hidePanel(); },
               });
             });
           }
@@ -2052,7 +2071,7 @@
               options.push({
                 id: variant.id, name: variant.label, info: infoFor(variant), current: variant.id === currentId,
                 preview: variant.money ? "kept as written" : (spanValue != null && variant.toMetric ? variant.fmt(variant.toMetric(spanValue)) : variant.rate),
-                onClick: () => { setInterpretation(original, variant.id, ctx); hidePanel(); },
+                onClick: () => { setInterpretation(span, original, variant.id, ctx); hidePanel(); },
               });
             });
           }
@@ -2744,13 +2763,16 @@
   }
 
   function start() {
-    rebuildRuleSets();
-    // Rules are built even when disabled, so toggling back on activates cleanly.
     if (hostDisabled() || started) return;
     started = true;
     scan(document.body);
     startObserver();
     loadEncoder();
+  }
+
+  // Accept only the per-host shape; older flat rule shapes (if any) are dropped.
+  function adoptRules(obj) {
+    rules = obj && obj.hosts && typeof obj.hosts === "object" ? { hosts: obj.hosts } : { hosts: {} };
   }
 
   if (storage) {
@@ -2760,7 +2782,7 @@
     ]).then(
       ([s, r]) => {
         settings = { ...DEFAULT_SETTINGS, ...s };
-        rules = { ...DEFAULT_RULES, ...(r.mgRules || {}) };
+        adoptRules(r.mgRules);
         start();
       },
       () => start()
@@ -2777,7 +2799,7 @@
         if (hostDisabled()) { stopObserver(); started = false; revertAll(); }
         else { start(); }
       }
-      if (changes.mgRules) { rules = { ...DEFAULT_RULES, ...changes.mgRules.newValue }; rebuildRuleSets(); touched = true; }
+      if (changes.mgRules) { adoptRules(changes.mgRules.newValue); touched = true; }
       if (touched) rescan();
     });
   } else {
