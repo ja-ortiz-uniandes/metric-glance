@@ -148,15 +148,8 @@
     });
   }
 
-  // Toolbar button: clicking it toggles the current site on/off the list.
-  // (No popup is set in the manifest, so onClicked fires directly. This is the
-  // path Firefox for Android uses, where contextMenus is unavailable.)
-  if (action && action.onClicked) {
-    action.onClicked.addListener((tab) => {
-      if (!tab) return;
-      toggleHost(hostOf(tab.url)).then(() => updateBadge(tab));
-    });
-  }
+  // Toolbar button opens popup.html (a small menu: open settings, or toggle
+  // this site). The popup does the work, so there is no onClicked handler.
 
   // Keep the toolbar badge in sync as the user navigates or toggles elsewhere.
   if (action && ext.tabs) {

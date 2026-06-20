@@ -10,7 +10,7 @@ The extension also ships an off-device data pipeline: it logs labeled training e
 
 - Repo: `github.com/ja-ortiz-uniandes/metric-glance`, branch `main`
 - Local path: `C:\Users\joral\Git projects\metric-glance` (Windows; LF->CRLF git warnings are harmless)
-- Current version: `0.41.0`
+- Current version: `0.42.0`
 - Contact: `metric.glance@proton.me`
 - No build step. Plain JavaScript throughout.
 
@@ -29,8 +29,11 @@ extension/          The only thing packaged into the .xpi
   manifest.json     MV2 manifest (version, permissions, background scripts)
   converter.js      Main content script: detection, conversion, hover panel,
                     picker, corrections, training-data logging
-  background.js     Desktop right-click menu, keyboard command, onInstalled handler
+  background.js     Desktop right-click menu, keyboard command, onInstalled handler,
+                    toolbar-button badge sync, per-site disable-list helpers
   mg-uploader.js    Background uploader: signs and POSTs training records to backend
+  popup.html        Toolbar-button menu (open settings, toggle this site off/on)
+  popup.js          Script for popup.html (external; inline scripts CSP-blocked)
   options.html      Settings page UI
   options.js        Settings page logic
   welcome.html      First-run onboarding page (opens on install)
