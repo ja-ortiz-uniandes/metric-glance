@@ -274,10 +274,10 @@
     { name: "yards", pattern: "(?:yards?|yds?\\.?)", variants: [
       { id: "yd", label: "Length (yards → m)", toMetric: (v) => v * 0.9144, fmt: (v) => fmtScale("Length", v), rate: "1 yard = 0.9144 m" },
     ] },
-    { name: "feet", pattern: "(?:feet|foot|ft\\.?|′)", variants: [
+    { name: "feet", pattern: "(?:feet|foot|ft\\.?|[′'])", variants: [
       { id: "ft", label: "Length (feet → m)", toMetric: (v) => v * 0.3048, fmt: (v) => formatLengthM(v), rate: "1 foot = 0.3048 m" },
     ] },
-    { name: "inches", pattern: "(?:inches|inch|in\\.|″)", variants: [
+    { name: "inches", pattern: "(?:inches|inch|in\\.|[″\"])", variants: [
       { id: "in", label: "Length (inches → cm)", toMetric: (v) => v * 2.54, fmt: (v) => fmtScale("Length", v/100), rate: "1 inch = 2.54 cm" },
     ] },
     { name: "pounds", pattern: "(?:pounds?|lbs?\\.?)", variants: [
@@ -309,7 +309,7 @@
 
   const NUM = "(-?\\d{1,3}(?:,\\d{3})+|-?\\d+)(?:\\.(\\d+(?:\\s\\d{2,})*))?(?:\\s+(\\d+)\\s*/\\s*(\\d+))?";
   const UNIT_ALT = UNITS.map((u) => u.pattern).join("|");
-  const UNIT_RE = new RegExp(NUM + "\\s*(" + UNIT_ALT + ")(?![\\w°])", "gi");
+  const UNIT_RE = new RegExp("(?<![\\w])" + NUM + "\\s*(" + UNIT_ALT + ")(?![\\w°])", "gi");
   const UNIT_RES = UNITS.map((u) => ({ unit: u, re: new RegExp("^(?:" + u.pattern + ")$", "i") }));
 
   // Dimension lists sharing one trailing unit. With ×/x separators we allow
@@ -325,8 +325,8 @@
     "gi"
   );
   const DIM_UNITS = [
-    { re: /^(?:in|inch|inches|in\.|″)$/i, name: "inches" },
-    { re: /^(?:ft|feet|foot|ft\.|′)$/i, name: "feet" },
+    { re: /^(?:in|inch|inches|in\.|[″"])$/i, name: "inches" },
+    { re: /^(?:ft|feet|foot|ft\.|[′'])$/i, name: "feet" },
     { re: /^(?:yd|yds?|yards?|yd\.)$/i, name: "yards" },
   ];
   function findDimUnit(unitText) {
@@ -334,6 +334,13 @@
     for (const d of DIM_UNITS) if (d.re.test(x)) return UNITS.find((u) => u.name === d.name);
     return findUnit(unitText);
   }
+
+  // Compound feet+inches written as 5'10" or 5′10″ (or mixed). Matched as a
+  // single span so it wins over the partial 10" match from UNIT_RE.
+  const HEIGHT_RE = new RegExp(
+    "(\\d+(?:\\.\\d+)?)\\s*[′']\\s*(\\d+(?:\\.\\d+)?)\\s*[″\"](?![\\w°])",
+    "gi"
+  );
 
   function findUnit(unitText) {
     for (const { unit, re } of UNIT_RES) if (re.test(unitText.trim())) return unit;
@@ -625,6 +632,24 @@
     return out.slice(0, 8);
   }
 
+  // A number written with a prime/apostrophe is a length: a single mark
+  // (5', 5′, 5’) means feet, a double mark (5", 5″, 5'') means inches. Used to
+  // pin the right unit in the picker's suggestions. Returns "ft", "in", or null.
+  // Single marks:  ' (U+0027)  ’ (U+2019)  ′ (U+2032)  ʹ (U+02B9)  ´ (U+00B4)  ʻ (U+02BB)  ` (U+0060)
+  // Double marks:  " (U+0022)  ” (U+201D)  “ (U+201C)  ″ (U+2033)
+  function primeLengthId(text) {
+    if (!text) return null;
+    // First number, optional spaces, then one or two prime/quote marks.
+    const m = String(text).match(
+      /\d[\d.,]*\s*(['’′ʹ´ʻ`"”“″]{1,2})/
+    );
+    if (!m) return null;
+    const marks = m[1];
+    if (marks.length >= 2) return "in"; // two marks (e.g. 5'') → inches
+    // A single double-quote-style mark is inches; a single prime is feet.
+    return /["”“″]/.test(marks) ? "in" : "ft";
+  }
+
   // --- Metric scale engine -------------------------------------------------
   // Each category has a canonical base unit and a ladder of metric scales
   // (size of each unit in base units). The renderer picks the enabled scale
@@ -882,6 +907,23 @@
       out.push({ start: m.index, end: m.index + full.length, full, kind: "unit", value, unit, unitText: (unitText || "").trim() });
     }
 
+    // Compound feet+inches: 5'10" → expressed as total feet so the feet
+    // unit's toMetric/fmt pipeline handles the rest. Starts earlier and spans
+    // wider than the partial 10" that UNIT_RE would also find, so overlap
+    // resolution keeps this one and drops the shorter match.
+    const feetUnit = UNITS.find((u) => u.name === "feet");
+    HEIGHT_RE.lastIndex = 0;
+    while ((m = HEIGHT_RE.exec(text)) !== null) {
+      const full = m[0];
+      const ft = parseFloat(m[1]);
+      const ins = parseFloat(m[2]);
+      if (!isFinite(ft) || !isFinite(ins)) continue;
+      out.push({
+        start: m.index, end: m.index + full.length, full, kind: "unit",
+        value: ft + ins / 12, unit: feetUnit, unitText: "′",
+      });
+    }
+
     // Dimension lists: "4 x 3 x 1 in" share one trailing unit across all
     // numbers, so convert each (overlap resolution prefers this over the lone
     // "1 in" match because it starts earlier and is longer).
@@ -1082,6 +1124,7 @@
   function gatherTextNodes(node, out) {
     if (node.nodeType === Node.TEXT_NODE) { out.push(node); return; }
     if (node.nodeType !== Node.ELEMENT_NODE || isSkippable(node)) return;
+    if (node.tagName === "BR") { out.push(node); return; } // emits a space in processRun
     for (const child of node.childNodes) gatherTextNodes(child, out);
   }
 
@@ -1094,6 +1137,7 @@
     let text = "";
     const map = []; // map[i] = [textNode, offsetInNode]
     for (const tn of tnodes) {
+      if (tn.tagName === "BR") { text += " "; map.push([tn, 0]); continue; }
       const v = tn.nodeValue || "";
       for (let i = 0; i < v.length; i++) { text += v[i]; map.push([tn, i]); }
     }
@@ -1197,6 +1241,41 @@
     // remove those adjacent to the new span so no stray link/styling lingers.
     cleanupEmptyInline(span.previousSibling, "prev");
     cleanupEmptyInline(span.nextSibling, "next");
+
+    // Keep the converted value set off by spaces from the surrounding text.
+    ensureSpacing(span);
+  }
+
+  // After inserting a conversion span, set it off with a space from the
+  // surrounding text on BOTH sides, so a value never butts up against another
+  // character (e.g. "3 mCord" or "1.37 cm× H"). Punctuation that normally hugs
+  // is allowed to touch the value directly, handled directionally so it reads
+  // right: closing punctuation (, . : ; ) ] }) may follow the value with no
+  // space ("1.5 m).", "1.5 m:"), and opening brackets (( [ {) may precede it
+  // ("(1.5 m"). Everything else (letters, digits, ×, /, opening bracket *after*
+  // the value, …) gets a space. Spaces are inserted outside the span (no
+  // underline); existing whitespace is left alone. Called from every insertion path.
+  const NO_SPACE_AFTER = /[\s,.:;)\]}]/;
+  const NO_SPACE_BEFORE = /[\s,.(\[{]/;
+  function ensureSpacing(span) {
+    if (!span || !span.parentNode) return;
+    const edgeChar = (node, which) => {
+      if (!node) return null;
+      const s = node.nodeType === Node.TEXT_NODE ? (node.nodeValue || "")
+        : node.nodeType === Node.ELEMENT_NODE ? (node.textContent || "") : "";
+      if (!s) return null;
+      return which === "first" ? s[0] : s[s.length - 1];
+    };
+    const after = span.nextSibling;
+    const ac = edgeChar(after, "first");
+    if (ac && !NO_SPACE_AFTER.test(ac)) {
+      span.parentNode.insertBefore(document.createTextNode(" "), after);
+    }
+    const before = span.previousSibling;
+    const bc = edgeChar(before, "last");
+    if (bc && !NO_SPACE_BEFORE.test(bc)) {
+      span.parentNode.insertBefore(document.createTextNode(" "), span);
+    }
   }
 
   function cleanupEmptyInline(node, dir) {
@@ -1240,7 +1319,7 @@
       } else if (child.nodeType === Node.ELEMENT_NODE) {
         if (isSkippable(child)) {
           flush();
-        } else if (isInlineEl(child)) {
+        } else if (child.tagName === "BR" || isInlineEl(child)) {
           run.push(child);
         } else {
           flush();
@@ -1398,21 +1477,121 @@
   // User explicitly told us the unit of a selection (category > unit menu).
   function applyConvertAs(range, unitId) {
     if (!range || range.collapsed) return { ok: false, reason: "empty" };
-    const v = REG_BY_ID[unitId] || VARIANT_BY_ID[unitId];
-    if (!v || typeof v.toMetric !== "function") return { ok: false, reason: "bad_unit" };
+    const variant = REG_BY_ID[unitId] || VARIANT_BY_ID[unitId];
+    if (!variant || typeof variant.toMetric !== "function") return { ok: false, reason: "bad_unit" };
+
+    const ca = range.commonAncestorContainer;
+    const ctxEl = ca.nodeType === Node.ELEMENT_NODE ? ca : ca.parentElement;
+    const ctxText = ctxEl ? ctxEl.textContent : range.toString();
+
+    // ── Multi-value path ──────────────────────────────────────────────────────
+    // Build a character-to-DOM map for the selected text nodes, then find every
+    // value that matches the chosen unit and insert a separate span for each.
+    // Falls back to the single-value path if the map is empty or no spans land.
+
+    const insertedSpans = (() => {
+      const walkRoot = ca.nodeType === Node.TEXT_NODE ? ca.parentNode : ca;
+      if (!walkRoot) return [];
+      const selTnodes = [];
+      const tw = document.createTreeWalker(walkRoot, NodeFilter.SHOW_TEXT, null);
+      let tn;
+      while ((tn = tw.nextNode())) {
+        if (isSkippable(tn)) continue;
+        try {
+          const nr = document.createRange();
+          nr.selectNodeContents(tn);
+          // Keep only text nodes that overlap the selection. END_TO_START >= 0
+          // means the node ends at/before the selection starts (entirely before);
+          // START_TO_END <= 0 means it starts at/after the selection ends (after).
+          if (range.compareBoundaryPoints(Range.END_TO_START, nr) >= 0) continue;
+          if (range.compareBoundaryPoints(Range.START_TO_END, nr) <= 0) continue;
+        } catch (e) { continue; }
+        selTnodes.push(tn);
+      }
+      if (selTnodes.length === 0) return [];
+
+      let text = "";
+      const map = [];
+      for (const node of selTnodes) {
+        const startOff = node === range.startContainer ? range.startOffset : 0;
+        const endOff   = node === range.endContainer   ? range.endOffset   : (node.nodeValue || "").length;
+        const slice = (node.nodeValue || "").slice(startOff, endOff);
+        for (let i = 0; i < slice.length; i++) { text += slice[i]; map.push([node, startOff + i]); }
+      }
+      if (!text || !/\d/.test(text)) return [];
+
+      // Candidates matching the chosen unit; fall back to bare numbers.
+      let candidates = proposeSpans(text).filter(c =>
+        c.kind === "unit" && c.unit && c.unit.variants.some(va => va.id === unitId)
+      );
+      if (candidates.length === 0) {
+        // Each bare number optionally carries a trailing prime/quote marker
+        // (5', 0.54”, 0.39″) so the span consumes the marker instead of leaving
+        // it orphaned next to the converted value ("1.4 cm”"). parseFloat reads
+        // the leading number and ignores the marker, so the value is unaffected.
+        const bareRe = /(?<!\w)-?\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\s*['’′ʹ´ʻ`"”“″]{1,2})?/g;
+        let bm;
+        const unit = UNITS.find(u => u.variants.some(va => va.id === unitId));
+        while ((bm = bareRe.exec(text)) !== null) {
+          const value = parseFloat(bm[0].replace(/,/g, ""));
+          if (!isFinite(value)) continue;
+          candidates.push({ start: bm.index, end: bm.index + bm[0].length, full: bm[0], kind: "unit", value, unit });
+        }
+      }
+      if (candidates.length < 2) return []; // single value: let the simple path handle it
+
+      for (const c of candidates) c.display = variant.fmt(variant.toMetric(c.value));
+      candidates.sort((a, b) => a.start - b.start || b.end - a.end);
+      const chosen = [];
+      let cur = -1;
+      for (const c of candidates) { if (c.start >= cur) { chosen.push(c); cur = c.end; } }
+      if (chosen.length < 2) return [];
+
+      chosen.sort((a, b) => b.start - a.start); // right-to-left for DOM stability
+      const spans = [];
+      for (const c of chosen) {
+        if (!map[c.start] || !map[c.end - 1]) continue;
+        const r = document.createRange();
+        try {
+          r.setStart(map[c.start][0], map[c.start][1]);
+          r.setEnd(map[c.end - 1][0], map[c.end - 1][1] + 1);
+        } catch (err) { continue; }
+        const rStyle = snapshotStyle(map[c.start][0].parentElement);
+        const rCa = r.commonAncestorContainer;
+        if (rCa && rCa.nodeType === Node.ELEMENT_NODE) inlineDescendantStyles(rCa);
+        const frag = r.extractContents();
+        const span = makeMark(c);
+        span.setAttribute("data-variant", unitId);
+        if (frag.querySelector && frag.querySelector("*")) span.classList.add("mg-rich");
+        if (rStyle) originalStyle.set(span, rStyle);
+        originalContent.set(span, frag);
+        r.insertNode(span);
+        cleanupEmptyInline(span.previousSibling, "prev");
+        cleanupEmptyInline(span.nextSibling, "next");
+        ensureSpacing(span);
+        logTrainingExample("convert-as:" + unitId, c.full, ctxText, { interacted: true, node: ctxEl, unitId });
+        spans.push(span);
+      }
+      return spans;
+    })();
+
+    if (insertedSpans.length > 0) {
+      const sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+      setTimeout(() => showPanelFor(insertedSpans[insertedSpans.length - 1]), 0);
+      return { ok: true };
+    }
+
+    // ── Single-value path (original behaviour) ────────────────────────────────
     const selText = range.toString().replace(/\s+/g, " ").trim();
     const m = selText.match(/-?\d[\d,]*(?:\.\d+)?/);
     if (!m) return { ok: false, reason: "no_value" };
     const value = parseFloat(m[0].replace(/,/g, ""));
     if (!isFinite(value)) return { ok: false, reason: "no_value" };
 
-    const disp = v.fmt(v.toMetric(value));
-    const ca = range.commonAncestorContainer;
-    const ctxEl = ca && ca.nodeType === Node.ELEMENT_NODE ? ca : ca && ca.parentElement;
-    const ctxText = ctxEl ? ctxEl.textContent : selText;
-    const ctxStyle = snapshotStyle(ca && ca.nodeType === Node.ELEMENT_NODE ? ca : ca && ca.parentElement);
-    if (ca && ca.nodeType === Node.ELEMENT_NODE) inlineDescendantStyles(ca);
-
+    const disp = variant.fmt(variant.toMetric(value));
+    const ctxStyle = snapshotStyle(ca.nodeType === Node.ELEMENT_NODE ? ca : ca.parentElement);
+    if (ca.nodeType === Node.ELEMENT_NODE) inlineDescendantStyles(ca);
     const frag = range.extractContents();
     const span = document.createElement("span");
     span.className = MARK_CLASS;
@@ -1427,8 +1606,9 @@
     originalContent.set(span, frag);
     if (ctxStyle) originalStyle.set(span, ctxStyle);
     range.insertNode(span);
+    ensureSpacing(span);
 
-    logTrainingExample("convert-as:" + unitId, selText, ctxText, { interacted: true, node: ctxEl, unitId: unitId });
+    logTrainingExample("convert-as:" + unitId, selText, ctxText, { interacted: true, node: ctxEl, unitId });
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -1504,6 +1684,7 @@
     if (frag.querySelector && frag.querySelector("*")) span.classList.add("mg-rich");
     originalContent.set(span, frag);
     range.insertNode(span);
+    ensureSpacing(span);
 
     logTrainingExample("price", priceStr || selText, priceCtx, { interacted: true, node: _ctxEl, unitId: "price" });
     const sel = window.getSelection();
@@ -1995,6 +2176,39 @@
     pickerRange = null;
   }
 
+  // Build the selection-line fade mask in JS so it is content-aware: only the
+  // context clipped by the box edges is dimmed. The bold selection together
+  // with the 3 characters on either side (lnear/rnear) is always left fully
+  // opaque, even when the selection sits at the very start or end of the line.
+  // The static CSS mask on .mg-pk-selline is just a first-frame fallback.
+  function applySellineMask(line, lnear, strong, rnear) {
+    const FADE = 24; // px of fade applied at a clipped edge
+    const vw = line.clientWidth;
+    if (!vw) return;
+    const sl = line.scrollLeft;
+    // Protected zone, in viewport px: 3 chars before + bold + 3 chars after.
+    // Fall back to the bold's own edges when there is no adjacent context.
+    const leftEl = lnear && lnear.textContent ? lnear : strong;
+    const rightEl = rnear && rnear.textContent ? rnear : strong;
+    const protLeft = leftEl.offsetLeft - sl;
+    const protRight = rightEl.offsetLeft + rightEl.offsetWidth - sl;
+    const hasLeftOverflow = sl > 1;
+    const hasRightOverflow = line.scrollWidth - sl - vw > 1;
+    // Fade only where content is actually clipped, and never let a fade reach
+    // into the protected zone.
+    let leftEnd = 0; // opaque from the very left unless we fade
+    if (hasLeftOverflow) leftEnd = Math.max(0, Math.min(FADE, protLeft));
+    let rightStart = vw; // opaque to the very right unless we fade
+    if (hasRightOverflow) rightStart = Math.min(vw, Math.max(vw - FADE, protRight));
+    const head = leftEnd > 0 ? "transparent 0, #000 " + leftEnd + "px" : "#000 0";
+    const tail = rightStart < vw
+      ? "#000 " + rightStart + "px, transparent " + vw + "px"
+      : "#000 " + vw + "px";
+    const g = "linear-gradient(to right, " + head + ", " + tail + ")";
+    line.style.webkitMaskImage = g;
+    line.style.maskImage = g;
+  }
+
   function openPickerForSpan(span) {
     hidePanel();
     openPicker({
@@ -2101,24 +2315,37 @@
       const idx = ctxText.indexOf(selText);
       const beforeAll = idx > 0 ? ctxText.slice(0, idx) : "";
       const afterAll = idx >= 0 ? ctxText.slice(idx + selText.length) : "";
-      const lspan = document.createElement("span");
-      lspan.className = "mg-pk-ctx";
-      lspan.textContent = beforeAll.slice(-80);
+      const beforeWin = beforeAll.slice(-80);
+      const afterWin = afterAll.slice(0, 80);
+      // Keep the 3 characters adjacent to the selection in their own spans so
+      // they can be measured: the bold selection and these neighbours must
+      // never be touched by the edge fade (see applySellineMask).
+      const mkctx = (text) => {
+        const s = document.createElement("span");
+        s.className = "mg-pk-ctx";
+        s.textContent = text;
+        return s;
+      };
+      const lfar = mkctx(beforeWin.slice(0, -3));
+      const lnear = mkctx(beforeWin.slice(-3));
       const strong = document.createElement("strong");
       strong.className = "mg-pk-seltext";
       strong.textContent = selText;
-      const rspan = document.createElement("span");
-      rspan.className = "mg-pk-ctx";
-      rspan.textContent = afterAll.slice(0, 80);
-      line.appendChild(lspan);
+      const rnear = mkctx(afterWin.slice(0, 3));
+      const rfar = mkctx(afterWin.slice(3));
+      line.appendChild(lfar);
+      line.appendChild(lnear);
       line.appendChild(strong);
-      line.appendChild(rspan);
+      line.appendChild(rnear);
+      line.appendChild(rfar);
       selbox.appendChild(line);
-      // Scroll so the selection sits a fixed bit in from the left edge:
-      // always some context before it, but never pushed past mid-box.
+      // Scroll so the selection sits a fixed bit in from the left edge (always
+      // some context before it, but never pushed past mid-box), then build a
+      // content-aware fade that never dims the bold selection or its neighbours.
       requestAnimationFrame(() => {
         const inset = Math.min(64, line.clientWidth * 0.4);
         line.scrollLeft = Math.max(0, strong.offsetLeft - inset);
+        applySellineMask(line, lnear, strong, rnear);
       });
     } else {
       const empty = document.createElement("div");
@@ -2165,6 +2392,9 @@
 
     // The selection's non-numeric remainder, used to suggest likely units.
     const hint = selText.replace(/-?\d[\d,]*(?:\.\d+)?/g, " ").replace(/[x×]/g, " ").trim();
+    // A number followed by a prime/apostrophe pins the length unit:
+    // ' → feet, '' or " → inches (see primeLengthId).
+    const primeId = primeLengthId(selText);
 
     let activeCat = "All";
 
@@ -2276,7 +2506,15 @@
       hideTip();
       const q = search.value;
       let suggested = [];
-      if (activeCat === "All" && !q.trim()) suggested = suggestionsFor(hint);
+      if (activeCat === "All" && !q.trim()) {
+        suggested = suggestionsFor(hint);
+        // A number written with a prime/apostrophe is feet (') or inches (''/"):
+        // pin that unit at the top of the suggestions regardless of other hints.
+        if (primeId) {
+          const forced = REG_BY_ID[primeId];
+          if (forced) suggested = [forced, ...suggested.filter((e) => e.id !== primeId)];
+        }
+      }
 
       // Price is its own category. Show it as a suggestion only when the
       // selection really looks like a price; otherwise it's still reachable
