@@ -2,7 +2,7 @@
 
 A Firefox extension (desktop and Android) that converts non-metric units to metric, and rounds awkward prices, directly on the page. Converted values get a dotted underline; hover them on desktop or tap them on mobile to see the original value, switch between similarly-named units, or open a searchable unit picker.
 
-**[Install from Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/metric-glance/)**
+**[Install from Firefox Add-ons](https://addons.mozilla.org/firefox/addon/metric-glance/)**
 
 ## What it does
 
@@ -15,7 +15,7 @@ A Firefox extension (desktop and Android) that converts non-metric units to metr
 
 Needs **Firefox 140+** (desktop) or **Firefox for Android 142+**.
 
-**[Install from addons.mozilla.org](https://addons.mozilla.org/en-US/firefox/addon/metric-glance/)**
+**[Install from addons.mozilla.org](https://addons.mozilla.org/firefox/addon/metric-glance/)**
 
 iPhone/iPad are not supported: Firefox on iOS can't run extensions (an Apple restriction).
 
@@ -29,14 +29,6 @@ Detection today is a **deterministic regex engine**, not a model. For each block
 
 `proposeSpans(text)` is the seam where a future detection model plugs in: it currently returns the regex candidates unchanged, and is designed so a trained classifier can later decide *what* to convert (and which unit it is) while the deterministic table keeps doing the math. See **Roadmap** below.
 
-## Install (temporary, for development)
-
-1. Open `about:debugging#/runtime/this-firefox` in Firefox.
-2. Click **Load Temporary Add-on...** and choose `extension/manifest.json`.
-3. Visit any page, or the [live demo page](https://ja-ortiz-uniandes.github.io/metric-glance/). Click **Reload** in about:debugging after code changes, then hard-refresh the page.
-
-For Android testing run `web-ext run --source-dir extension --target=firefox-android` (or run `web-ext` from inside the `extension/` directory).
-
 ## Usage
 
 - **Read:** converted values are underlined. Hover (desktop) or tap (mobile) to open the panel.
@@ -46,19 +38,19 @@ For Android testing run `web-ext run --source-dir extension --target=firefox-and
 
 ## File layout
 
-| File                          | Role                                                                                                                                      |
-|-------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| `manifest.json`               | Extension manifest (MV2): permissions, content script, background, the keyboard command.                                                  |
-| `converter.js`                | **The main code.** Content script: detection, conversion, the hover panel, the searchable picker, corrections, and training-data logging. |
-| `background.js`               | Builds the desktop right-click menu, handles the keyboard command, reports the current shortcut.                                          |
-| `mg-uploader.js`              | Background script: batches and uploads training records to the collection Worker (consent-gated).                                         |
-| `welcome.html` / `welcome.js` | First-run page: introduces the extension and lets the user configure data sharing.                                                        |
-| `options.html` / `options.js` | Settings page.                                                                                                                            |
-| `styles.css`                  | Underlines, panel, picker, and toolbar styles (picker follows Firefox's light/dark theme).                                                |
-| `icons/`                      | Toolbar/listing icons.                                                                                                                    |
-| `docs/index.html`             | The live demo / landing page published via GitHub Pages.                                                                                  |
-| `docs/privacy.html`           | [Privacy policy](https://ja-ortiz-uniandes.github.io/metric-glance/privacy.html).                                                        |
-| `CHANGELOG.md`                | Version-by-version history.                                                                                                               |
+| File                          | Role                                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `manifest.json`               | Extension manifest (MV2): permissions, content script, background, the keyboard command.                                                   |
+| `converter.js`                | **The main code.** Content script: detection, conversion, the hover panel, the searchable picker, corrections, and training-data logging.  |
+| `background.js`               | Builds the desktop right-click menu, handles the keyboard command, reports the current shortcut.                                           |
+| `mg-uploader.js`              | Background script: batches and uploads training records to the collection Worker (consent-gated).                                          |
+| `welcome.html` / `welcome.js` | First-run page: introduces the extension and lets the user configure data sharing.                                                         |
+| `options.html` / `options.js` | Settings page.                                                                                                                             |
+| `styles.css`                  | Underlines, panel, picker, and toolbar styles (picker follows Firefox's light/dark theme).                                                 |
+| `icons/`                      | Toolbar/listing icons.                                                                                                                     |
+| `docs/index.html`             | The live demo / landing page published via GitHub Pages.                                                                                   |
+| `docs/privacy.html`           | [Privacy policy](https://ja-ortiz-uniandes.github.io/metric-glance/privacy.html).                                                          |
+| `CHANGELOG.md`                | Version-by-version history.                                                                                                                |
 
 The runtime files above live in the `extension/` directory, which is what gets packaged into the xpi. The `collect/` backend and the `docs/` demo sit alongside `extension/` in the repo but are never shipped in the add-on.
 

@@ -24,7 +24,7 @@ The extension also ships an off-device data pipeline: it logs labeled training e
 
 ## Repo structure
 
-```
+```plaintext
 extension/          The only thing packaged into the .xpi
   manifest.json     MV2 manifest (version, permissions, background scripts)
   converter.js      Main content script: detection, conversion, hover panel,
@@ -123,7 +123,7 @@ await browser.storage.local.set({ shareData: true })
 
 ### Backend commands (run from collect/)
 
-```
+```bash
 npm run count    // row count and most recent received_at
 npm run tail     // stream live Worker logs
 npm run deploy   // deploy the Worker
@@ -145,7 +145,7 @@ One bump per change batch. A batch equals an AMO upload + GitHub release + repo 
 ### Done
 
 | Item | Description |
-|------|-------------|
+| ------ | ------------- |
 | #2 | Deploy Cloudflare Worker + D1 backend |
 | #6 | Race-safe hard-delete uploader (mg-uploader.js) |
 | #5 | Settings toggles: logSamples and shareData, with options UI and nudge banner |
@@ -153,7 +153,7 @@ One bump per change batch. A batch equals an AMO upload + GitHub release + repo 
 
 ### Remaining
 
-**#3: Privacy policy + AMO disclosure (release gate)**
+### #3: Privacy policy + AMO disclosure (release gate)
 
 This is the only thing blocking a public AMO release that transmits data.
 
@@ -163,22 +163,23 @@ This is the only thing blocking a public AMO release that transmits data.
 
 Until #3 is done: do not submit a version to AMO that contains the uploader. Keep released builds as local-only by leaving `shareData` defaulting to off in any build that goes to AMO, or hold the release entirely.
 
-**Commit and version bump to 0.38.0**
+### Commit and version bump to 0.38.0
 
 The current working tree contains all the pipeline work. Batch it into one commit and bump.
 
-**Accumulate training data**
+### Accumulate training data
 
 Once the extension is live with collection enabled, let corrections and seen-entries accumulate in D1. Run `npm run count` periodically from `collect/` to monitor.
 
-**Train the classifier**
+### Train the classifier
 
 When enough labeled data exists (hundreds to low thousands of corrected examples is a reasonable starting point):
+
 - Export from D1
 - Fine-tune a token-classification encoder (e.g. a small BERT variant) on the span-detection task
 - Export to ONNX for browser inference
 
-**Integrate the classifier**
+### Integrate the classifier
 
 - Load the ONNX model via `encoderModelUrl`
 - Slot inference into `proposeSpans()` behind the `useEncoder` flag
