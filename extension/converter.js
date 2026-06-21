@@ -2139,9 +2139,26 @@
     el.addEventListener("mouseleave", scheduleHide);
 
     document.body.appendChild(el);
+    // Clamp into the viewport so a span near an edge does not push the panel
+    // off-screen. offsetWidth/Height are valid now that el is in the document.
     const r = span.getBoundingClientRect();
-    el.style.top = window.scrollY + r.bottom + 6 + "px";
-    el.style.left = window.scrollX + Math.max(6, r.left) + "px";
+    const margin = 6;
+    const pw = el.offsetWidth;
+    const ph = el.offsetHeight;
+
+    let left = r.left;
+    if (left + pw > window.innerWidth - margin) left = window.innerWidth - margin - pw;
+    if (left < margin) left = margin;
+
+    // Below the span by default; flip above if it would overflow the bottom and
+    // there is room above.
+    let top = r.bottom + margin;
+    if (top + ph > window.innerHeight - margin && r.top - margin - ph >= margin) {
+      top = r.top - margin - ph;
+    }
+
+    el.style.left = window.scrollX + left + "px";
+    el.style.top = window.scrollY + top + "px";
 
     panel = el;
     panelSpan = span;
