@@ -102,8 +102,11 @@
     menus.create({ id: "mg-sep", parentId: "mg-as", type: "separator", contexts: ["selection"] });
     menus.create({ id: "mg-more", parentId: "mg-as", title: moreTitle(""), contexts: ["selection"] });
     menus.create({ id: "mg-price", title: "Round selection as a price", contexts: ["selection"] });
-    // Shown when nothing is selected: toggle the current site on/off the list.
-    // Title is refreshed per page in onShown to reflect the current state.
+    // Shown when nothing is selected. "Mark a missed unit" starts pick mode,
+    // for imperial units the detector skipped (incl. unselectable text).
+    menus.create({ id: "mg-pick", title: "Mark a missed unit on this page", contexts: ["page"] });
+    // Toggle the current site on/off the list. Title is refreshed per page in
+    // onShown to reflect the current state.
     menus.create({ id: "mg-toggle-site", title: "Don't run Metric Glance on this site", contexts: ["page"] });
   }
   function toggleTitle(off) {
@@ -138,6 +141,8 @@
       if (id === "mg-toggle-site") {
         const host = hostOf(info.pageUrl || tab.url);
         toggleHost(host).then(() => updateBadge(tab));
+      } else if (id === "mg-pick") {
+        ext.tabs.sendMessage(tab.id, { type: "mg-pick-mode" });
       } else if (id === "mg-price") {
         ext.tabs.sendMessage(tab.id, { type: "mg-force", kind: "price", text: info.selectionText });
       } else if (id === "mg-more") {

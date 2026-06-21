@@ -12,6 +12,7 @@
   const $toggle = document.getElementById("toggle");
   const $toggleTxt = document.getElementById("toggle-txt");
   const $toggleIco = document.getElementById("toggle-ico");
+  const $pick = document.getElementById("pick");
   const $settings = document.getElementById("settings");
 
   function normHost(h) { return String(h || "").trim().toLowerCase().replace(/\.$/, ""); }
@@ -32,11 +33,13 @@
       $state.textContent = "Not available on this page";
       $state.className = "state off";
       $toggle.disabled = true;
+      $pick.disabled = true;
       $toggleTxt.textContent = "Don't run on this site";
       $toggleIco.textContent = "🚫";
       return;
     }
     $toggle.disabled = false;
+    $pick.disabled = false;
     if (disabled) {
       $state.textContent = "Off on this site";
       $state.className = "state off";
@@ -62,6 +65,15 @@
   }
 
   $toggle.addEventListener("click", toggle);
+  $pick.addEventListener("click", () => {
+    api.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+      const tab = tabs && tabs[0];
+      if (!tab) return;
+      const p = api.tabs.sendMessage(tab.id, { type: "mg-pick-mode" });
+      if (p && p.catch) p.catch(() => {});
+      window.close();
+    });
+  });
   $settings.addEventListener("click", () => {
     if (api.runtime.openOptionsPage) api.runtime.openOptionsPage();
     window.close();

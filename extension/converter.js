@@ -972,14 +972,19 @@
   // A candidate: {start, end, full, kind:"unit"|"price", display, forced}
   function regexCandidates(text) {
     const out = [];
-
-    PRICE_RE.lastIndex = 0;
     let m;
-    while ((m = PRICE_RE.exec(text)) !== null) {
-      const [full, symbol, intPart, cents] = m;
-      const value = parseFloat(intPart.replace(/,/g, "")) + (cents ? parseFloat("0." + cents) : 0);
-      if (!isFinite(value)) continue;
-      out.push({ start: m.index, end: m.index + full.length, full, kind: "price", value, symbol });
+
+    // Price rounding is the only consumer of price candidates. Skip the whole
+    // pass when rounding is off, unless this host has forced-price corrections
+    // that still need to re-apply on reload.
+    if (settings.priceRounding || bucket(false).forcePrice.length) {
+      PRICE_RE.lastIndex = 0;
+      while ((m = PRICE_RE.exec(text)) !== null) {
+        const [full, symbol, intPart, cents] = m;
+        const value = parseFloat(intPart.replace(/,/g, "")) + (cents ? parseFloat("0." + cents) : 0);
+        if (!isFinite(value)) continue;
+        out.push({ start: m.index, end: m.index + full.length, full, kind: "price", value, symbol });
+      }
     }
 
     UNIT_RE.lastIndex = 0;
@@ -1223,6 +1228,7 @@
     span.setAttribute("tabindex", "0");
     span.setAttribute("role", "button");
     span.setAttribute("aria-label", `${c.display}, originally ${c.full.trim()}, activate to review`);
+    wireHover();
     return span;
   }
 
@@ -1350,9 +1356,14 @@
     const span = makeMark(c);
     // If the original held any element (a link, bold, etc.), mark it so the
     // underline differs and the panel knows there is hidden formatting.
-    if (frag.querySelector && frag.querySelector("*")) span.classList.add("mg-rich");
+    // Keep the original DOM only when it holds real markup (links, bold, etc.).
+    // Plain-text originals are rebuilt from data-original on revert and in the
+    // panel, so retaining a fragment for them only wastes memory.
+    if (frag.querySelector && frag.querySelector("*")) {
+      span.classList.add("mg-rich");
+      originalContent.set(span, frag);
+    }
     if (ctxStyle) originalStyle.set(span, ctxStyle);
-    originalContent.set(span, frag);
     range.insertNode(span);
 
     // Extraction can leave empty inline shells (e.g. a now-textless <a>);
@@ -1552,6 +1563,7 @@
     span.setAttribute("role", "button");
     span.setAttribute("aria-label", `${disp}, originally ${priceStr}, activate to review`);
     wrapper.appendChild(span);
+    wireHover();
     return true;
   }
 
@@ -1559,7 +1571,7 @@
     // Revert nothing; just process text that became convertible under new
     // rules. Newly-blocked spans are handled by revertSpan() at click time.
     if (hostDisabled()) return;
-    scan(document.body);
+    collectAndObserve(document.body);
   }
 
   // ---------------------------------------------------------------
@@ -1641,7 +1653,10 @@
         // (5', 0.54”, 0.39″) so the span consumes the marker instead of leaving
         // it orphaned next to the converted value ("1.4 cm”"). parseFloat reads
         // the leading number and ignores the marker, so the value is unaffected.
-        const bareRe = /(?<!\w)-?\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\s*['’′ʹ´ʻ`"”“″]{1,2})?/g;
+        // The leading guard rejects digits glued to a word (the "15" in
+        // "iPhone15"), but allows a number after a dimension separator (the "10"
+        // in "8x10", "8 x 10", "8.5×11") so dimension lists yield every value.
+        const bareRe = /(?:(?<!\w)|(?<=\d\s{0,3}[x×]\s{0,3}))-?\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:\s*['’′ʹ´ʻ`"”“″]{1,2})?/g;
         let bm;
         const unit = UNITS.find(u => u.variants.some(va => va.id === unitId));
         while ((bm = bareRe.exec(text)) !== null) {
@@ -1674,9 +1689,11 @@
         const frag = r.extractContents();
         const span = makeMark(c);
         span.setAttribute("data-variant", unitId);
-        if (frag.querySelector && frag.querySelector("*")) span.classList.add("mg-rich");
+        if (frag.querySelector && frag.querySelector("*")) {
+          span.classList.add("mg-rich");
+          originalContent.set(span, frag);
+        }
         if (rStyle) originalStyle.set(span, rStyle);
-        originalContent.set(span, frag);
         r.insertNode(span);
         cleanupEmptyInline(span.previousSibling, "prev");
         cleanupEmptyInline(span.nextSibling, "next");
@@ -1715,14 +1732,17 @@
     span.setAttribute("tabindex", "0");
     span.setAttribute("role", "button");
     span.setAttribute("aria-label", `${disp}, originally ${selText}, activate to review`);
-    if (frag.querySelector && frag.querySelector("*")) span.classList.add("mg-rich");
-    originalContent.set(span, frag);
+    if (frag.querySelector && frag.querySelector("*")) {
+      span.classList.add("mg-rich");
+      originalContent.set(span, frag);
+    }
     if (ctxStyle) originalStyle.set(span, ctxStyle);
     range.insertNode(span);
     ensureSpacing(span);
 
     logTrainingExample("convert-as:" + unitId, selText, ctxText, { interacted: true, node: ctxEl, unitId });
     recordForceUnit(span, selText, unitId);
+    wireHover();
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -1795,13 +1815,16 @@
     span.setAttribute("tabindex", "0");
     span.setAttribute("role", "button");
     span.setAttribute("aria-label", `${disp}, originally ${priceStr || selText}, activate to review`);
-    if (frag.querySelector && frag.querySelector("*")) span.classList.add("mg-rich");
-    originalContent.set(span, frag);
+    if (frag.querySelector && frag.querySelector("*")) {
+      span.classList.add("mg-rich");
+      originalContent.set(span, frag);
+    }
     range.insertNode(span);
     ensureSpacing(span);
 
     logTrainingExample("price", priceStr || selText, priceCtx, { interacted: true, node: _ctxEl, unitId: "price" });
     if (force) recordForcePrice(span, priceStr || selText);
+    wireHover();
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
     setTimeout(() => showPanelFor(span), 0);
@@ -2129,20 +2152,35 @@
     else showPanelFor(span);
   }
 
-  // Desktop: hover, with hide-intent delay and a relatedTarget guard so
-  // moving within the word (or onto the panel) does not flicker it closed.
-  if (FINE) {
-    document.addEventListener("mouseover", (e) => {
-      const span = e.target.closest && e.target.closest("." + MARK_CLASS);
-      if (span) { cancelHide(); showPanelFor(span); }
-    });
-    document.addEventListener("mouseout", (e) => {
-      const span = e.target.closest && e.target.closest("." + MARK_CLASS);
-      if (!span) return;
-      const to = e.relatedTarget;
-      if (to && (span.contains(to) || (panel && panel.contains(to)))) return;
-      scheduleHide();
-    });
+  // Desktop: hover opens the panel, with a hide-intent delay and relatedTarget
+  // guard so moving within the word (or onto the panel) does not flicker it
+  // closed. These delegated listeners run closest() on every mouse move, so we
+  // attach them lazily on the first conversion (wireHover, called from the span
+  // factories) and drop them when the page is cleared (unwireHover, from
+  // revertAll). Pages with no imperial units never attach them at all.
+  let hoverWired = false;
+  function onHoverOver(e) {
+    const span = e.target.closest && e.target.closest("." + MARK_CLASS);
+    if (span) { cancelHide(); showPanelFor(span); }
+  }
+  function onHoverOut(e) {
+    const span = e.target.closest && e.target.closest("." + MARK_CLASS);
+    if (!span) return;
+    const to = e.relatedTarget;
+    if (to && (span.contains(to) || (panel && panel.contains(to)))) return;
+    scheduleHide();
+  }
+  function wireHover() {
+    if (hoverWired || !FINE) return;
+    hoverWired = true;
+    document.addEventListener("mouseover", onHoverOver);
+    document.addEventListener("mouseout", onHoverOut);
+  }
+  function unwireHover() {
+    if (!hoverWired) return;
+    hoverWired = false;
+    document.removeEventListener("mouseover", onHoverOver);
+    document.removeEventListener("mouseout", onHoverOut);
   }
 
   // Tap (mobile) / click (either) toggles the panel; click elsewhere closes.
@@ -2212,6 +2250,7 @@
         else if (range) openPicker(range);
         return;
       }
+      if (msg.type === "mg-pick-mode") { enterPickMode(); return; }
       if (!range) return;
       if (msg.type === "mg-convert-as" && msg.unitId) {
         applyConvertAs(range, msg.unitId);
@@ -2709,6 +2748,347 @@
   document.addEventListener("touchend", () => setTimeout(handleSelection, 0));
 
   // ---------------------------------------------------------------
+  // Pick mode: mark an imperial unit the detector missed, including in
+  // text that cannot be selected (user-select:none, odd layouts, mobile).
+  //
+  // Click/tap an element; we run the detector over it and offer the unit
+  // phrases we find as chips. Tap a chip to convert it. If we find nothing
+  // (a genuine miss), fall back to tapping the words yourself. Either way
+  // we build a Range and hand it to the SAME conversion paths the selection
+  // flow uses (applyConvertAs / forcePriceFromSelection / openPicker), so
+  // there is no new conversion or logging logic here.
+  //
+  // Entirely dormant until invoked from the toolbar menu or the right-click
+  // menu: enter attaches listeners, exit removes them, leaving no cost.
+  // ---------------------------------------------------------------
+  let pickOn = false;
+  let pickStage = 0;     // 1 = choosing an element, 2 = choosing the phrase
+  let pickBox = null;    // hover / selection highlight outline (position:fixed)
+  let pickBar = null;    // instruction + chips bar
+  let pickCursor = null; // injected crosshair-cursor style, stage 1 only
+  let pickText = "";     // last picked element's collected text
+  let pickSegs = [];     // text-node segments for that text (offset -> DOM)
+
+  function pickEl(tag, cls) {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    el.setAttribute(UI_ATTR, "1");
+    return el;
+  }
+  function setCrosshair(on) {
+    if (on) {
+      if (pickCursor) return;
+      pickCursor = pickEl("style");
+      pickCursor.textContent = "*{cursor:crosshair !important;}";
+      (document.head || document.documentElement).appendChild(pickCursor);
+    } else if (pickCursor) { pickCursor.remove(); pickCursor = null; }
+  }
+
+  function enterPickMode() {
+    if (pickOn) return;
+    closePicker(); hideToolbar(); hidePanel();
+    pickOn = true;
+    pickStage = 1;
+    pickBox = pickEl("div", "mg-pick-box");
+    pickBox.style.display = "none";
+    document.body.appendChild(pickBox);
+    setCrosshair(true);
+    renderPickStage1();
+    document.addEventListener("mousemove", onPickMove, true);
+    document.addEventListener("click", onPickClick, true);
+    document.addEventListener("keydown", onPickKey, true);
+    document.addEventListener("scroll", hideBox, true);
+  }
+  function exitPickMode() {
+    if (!pickOn) return;
+    pickOn = false;
+    pickStage = 0;
+    document.removeEventListener("mousemove", onPickMove, true);
+    document.removeEventListener("click", onPickClick, true);
+    document.removeEventListener("keydown", onPickKey, true);
+    document.removeEventListener("scroll", hideBox, true);
+    setCrosshair(false);
+    if (pickBox) { pickBox.remove(); pickBox = null; }
+    if (pickBar) { pickBar.remove(); pickBar = null; }
+    pickText = ""; pickSegs = [];
+  }
+
+  function onPickKey(e) { if (e.key === "Escape") { e.preventDefault(); exitPickMode(); } }
+  function onPickMove(e) {
+    if (!pickOn || pickStage !== 1) return;
+    const t = pickTargetAt(e.clientX, e.clientY);
+    if (t) positionBox(t.getBoundingClientRect()); else hideBox();
+  }
+  function onPickClick(e) {
+    if (!pickOn) return;
+    // Let clicks on our own bar/buttons behave normally.
+    if (e.target && e.target.closest && e.target.closest("[" + UI_ATTR + "]")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+    if (pickStage !== 1) return; // stage 2 is driven by the bar
+    const t = pickTargetAt(e.clientX, e.clientY);
+    if (t) pickElement(t);
+  }
+
+  // The element a point resolves to, climbed to its nearest block ancestor so
+  // pointing at a tiny inline (e.g. a bare "12") still captures the whole
+  // phrase ("12 lb") around it. Ignores our own UI.
+  function pickTargetAt(x, y) {
+    const raw = document.elementFromPoint(x, y);
+    if (!raw) return null;
+    if (raw.closest && raw.closest("[" + UI_ATTR + "]")) return null;
+    return blockAncestor(raw);
+  }
+  function positionBox(rect) {
+    if (!pickBox || !rect) return;
+    pickBox.style.display = "block";
+    pickBox.style.top = rect.top + "px";
+    pickBox.style.left = rect.left + "px";
+    pickBox.style.width = rect.width + "px";
+    pickBox.style.height = rect.height + "px";
+  }
+  function hideBox() { if (pickBox) pickBox.style.display = "none"; }
+
+  // ---- bar rendering -------------------------------------------------------
+  function pickBarEl() {
+    if (!pickBar) { pickBar = pickEl("div", "mg-pick-bar"); document.body.appendChild(pickBar); }
+    while (pickBar.firstChild) pickBar.removeChild(pickBar.firstChild);
+    return pickBar;
+  }
+  function pickMsg(text) { const d = pickEl("div", "mg-pick-msg"); d.textContent = text; return d; }
+  function pickNote(text) { const d = pickEl("div", "mg-pick-note"); d.textContent = text; return d; }
+  function pickBtn(label, onClick, extra) {
+    const b = pickEl("button", "mg-pick-btn" + (extra ? " " + extra : ""));
+    b.type = "button";
+    b.textContent = label;
+    b.addEventListener("click", (e) => { e.preventDefault(); onClick(b); });
+    return b;
+  }
+  function pickCancelBtn() { return pickBtn("Cancel", exitPickMode, "mg-pick-cancel"); }
+  function pickRestartBtn() {
+    return pickBtn("Pick another spot", () => {
+      pickStage = 1; hideBox(); setCrosshair(true); renderPickStage1();
+    });
+  }
+
+  function renderPickStage1() {
+    const bar = pickBarEl();
+    bar.appendChild(pickMsg("Click text that has an imperial unit Metric Glance missed."));
+    bar.appendChild(pickNote("Works on text you cannot select. Esc to cancel."));
+    const row = pickEl("div", "mg-pick-actions");
+    row.appendChild(pickCancelBtn());
+    bar.appendChild(row);
+  }
+  function flashPickMsg(text) {
+    if (!pickBar) return;
+    const m = pickBar.querySelector(".mg-pick-msg");
+    if (!m) return;
+    const prev = m.textContent;
+    m.textContent = text;
+    setTimeout(() => {
+      if (pickStage === 1 && pickBar) {
+        const m2 = pickBar.querySelector(".mg-pick-msg");
+        if (m2) m2.textContent = prev;
+      }
+    }, 1500);
+  }
+
+  // ---- text collection + offset -> Range mapping ---------------------------
+  function collectPickText(root) {
+    const segs = [];
+    let text = "";
+    let w;
+    try {
+      w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode(n) {
+          if (!n.nodeValue) return NodeFilter.FILTER_REJECT;
+          if (isSkippable(n)) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        },
+      });
+    } catch (e) { return { text: "", segs }; }
+    let n;
+    while ((n = w.nextNode())) {
+      segs.push({ node: n, start: text.length, len: n.nodeValue.length });
+      text += n.nodeValue;
+    }
+    return { text, segs };
+  }
+  function locateOffset(segs, pos) {
+    let idx = 0;
+    for (let i = 0; i < segs.length; i++) { if (segs[i].start <= pos) idx = i; else break; }
+    const seg = segs[idx];
+    let off = pos - seg.start;
+    if (off < 0) off = 0;
+    if (off > seg.len) off = seg.len;
+    return { node: seg.node, offset: off };
+  }
+  function rangeFromOffsets(segs, start, end) {
+    if (!segs.length || end <= start) return null;
+    const a = locateOffset(segs, start);
+    const b = locateOffset(segs, end);
+    try {
+      const r = document.createRange();
+      r.setStart(a.node, a.offset);
+      r.setEnd(b.node, b.offset);
+      return r.collapsed ? null : r;
+    } catch (e) { return null; }
+  }
+  // Drop candidates fully contained inside a longer one (e.g. the inner 10"
+  // of a 5'10" height), keeping the widest reading of each span.
+  function dedupeOverlap(list) {
+    const sorted = list.slice().sort((a, b) => a.c.start - b.c.start || (b.c.end - b.c.start) - (a.c.end - a.c.start));
+    const kept = [];
+    for (const x of sorted) {
+      if (kept.some((k) => x.c.start >= k.c.start && x.c.end <= k.c.end)) continue;
+      kept.push(x);
+    }
+    return kept;
+  }
+
+  // ---- stage 2 -------------------------------------------------------------
+  function pickElement(target) {
+    const collected = collectPickText(target);
+    pickText = collected.text;
+    pickSegs = collected.segs;
+    if (!pickText || !/\S/.test(pickText)) {
+      flashPickMsg("No text there. Try clicking the words themselves.");
+      return;
+    }
+    const cands = dedupeOverlap(
+      proposeSpans(pickText)
+        .map((c) => ({ c, range: rangeFromOffsets(pickSegs, c.start, c.end) }))
+        .filter((x) => x.range)
+    );
+    pickStage = 2;
+    hideBox();
+    setCrosshair(false);
+    if (cands.length) renderCandidates(cands);
+    else renderWordPick();
+  }
+
+  function renderCandidates(cands) {
+    const bar = pickBarEl();
+    bar.appendChild(pickMsg(cands.length === 1
+      ? "Found a unit here. Tap it to convert:"
+      : "Found these. Tap the one to convert:"));
+    const chips = pickEl("div", "mg-pick-chips");
+    const MAX = 12;
+    cands.slice(0, MAX).forEach((x) => {
+      const chip = pickEl("button", "mg-pick-chip");
+      chip.type = "button";
+      chip.textContent = (x.c.full || "").trim() || x.range.toString().trim();
+      chip.addEventListener("mouseenter", () => { try { positionBox(x.range.getBoundingClientRect()); } catch (e) {} });
+      chip.addEventListener("mouseleave", hideBox);
+      chip.addEventListener("click", (e) => { e.preventDefault(); chooseCandidate(x); });
+      chips.appendChild(chip);
+    });
+    bar.appendChild(chips);
+    if (cands.length > MAX) bar.appendChild(pickNote("Showing the first " + MAX + ". Click a smaller area to narrow it down."));
+    const row = pickEl("div", "mg-pick-actions");
+    row.appendChild(pickBtn("None of these — pick words", renderWordPick));
+    row.appendChild(pickRestartBtn());
+    row.appendChild(pickCancelBtn());
+    bar.appendChild(row);
+  }
+
+  function chooseCandidate(x) {
+    const range = x.range;
+    const kind = x.c.kind;
+    exitPickMode();
+    if (kind === "price") { forcePriceFromSelection(range); return; }
+    const v = variantFor(x.c);
+    if (v && !v.money && typeof v.toMetric === "function" && v.id) applyConvertAs(range, v.id);
+    else openPicker(range);
+  }
+
+  // Fallback: tokenize the picked element into tappable words. Select the words
+  // of the measurement, then Convert opens the unit picker over that phrase.
+  // Fully general (any registry unit, any spelling).
+  //
+  // Selection model: on desktop a plain click selects one word, Ctrl/Cmd-click
+  // toggles a word in/out (so non-adjacent words can be picked), and Shift-click
+  // selects the range from the last click. On mobile (no modifier keys) every
+  // tap is an independent toggle. On Convert we build one Range spanning the
+  // first to the last selected word and seed the picker with the chosen words.
+  function renderWordPick() {
+    const tokens = [];
+    const re = /\S+/g;
+    let m;
+    while ((m = re.exec(pickText)) !== null) {
+      tokens.push({ word: m[0], start: m.index, end: m.index + m[0].length });
+      if (tokens.length >= 80) break;
+    }
+    const bar = pickBarEl();
+    const isMobile = !nativeMenus;
+    bar.appendChild(pickMsg(isMobile
+      ? "Tap each word of the measurement, then Convert."
+      : "Click the words. Ctrl-click to add, Shift-click for a range. Then Convert."));
+    if (!tokens.length) {
+      bar.appendChild(pickNote("No words found here."));
+      const r0 = pickEl("div", "mg-pick-actions");
+      r0.appendChild(pickRestartBtn());
+      r0.appendChild(pickCancelBtn());
+      bar.appendChild(r0);
+      return;
+    }
+    const wrap = pickEl("div", "mg-pick-words");
+    const chipEls = [];
+    const sel = new Set();
+    let anchor = -1; // last single/toggle click, the pivot for Shift-click
+    let convertBtn;
+    const selRange = () => {
+      const idx = [...sel].sort((a, b) => a - b);
+      if (!idx.length) return null;
+      return rangeFromOffsets(pickSegs, tokens[idx[0]].start, tokens[idx[idx.length - 1]].end);
+    };
+    const refresh = () => {
+      for (let i = 0; i < chipEls.length; i++) chipEls[i].classList.toggle("mg-pick-word-on", sel.has(i));
+      if (convertBtn) convertBtn.disabled = sel.size === 0;
+      const r = sel.size ? selRange() : null;
+      if (r) { try { positionBox(r.getBoundingClientRect()); } catch (e) { hideBox(); } } else hideBox();
+    };
+    tokens.forEach((tk, i) => {
+      const c = pickEl("button", "mg-pick-word");
+      c.type = "button";
+      c.textContent = tk.word;
+      c.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (e.shiftKey && anchor >= 0 && !isMobile) {
+          const a = Math.min(anchor, i), b = Math.max(anchor, i);
+          sel.clear();
+          for (let k = a; k <= b; k++) sel.add(k);
+        } else if (e.ctrlKey || e.metaKey || isMobile) {
+          if (sel.has(i)) sel.delete(i); else sel.add(i);
+          anchor = i;
+        } else {
+          sel.clear(); sel.add(i); anchor = i;
+        }
+        refresh();
+      });
+      chipEls.push(c);
+      wrap.appendChild(c);
+    });
+    bar.appendChild(wrap);
+    const row = pickEl("div", "mg-pick-actions");
+    convertBtn = pickBtn("Convert…", () => {
+      if (!sel.size) return;
+      const idx = [...sel].sort((a, b) => a - b);
+      const r = selRange();
+      const seedText = idx.map((k) => tokens[k].word).join(" ");
+      exitPickMode();
+      if (r) openPicker({ range: r, seedText: seedText, context: pickText });
+    }, "mg-pick-primary");
+    convertBtn.disabled = true;
+    row.appendChild(convertBtn);
+    row.appendChild(pickRestartBtn());
+    row.appendChild(pickCancelBtn());
+    bar.appendChild(row);
+    refresh();
+  }
+
+  // ---------------------------------------------------------------
   // Optional encoder loader (documented contract; inert until provided)
   // ---------------------------------------------------------------
   async function loadEncoder() {
@@ -2722,8 +3102,9 @@
   // ---------------------------------------------------------------
   // Startup
   // ---------------------------------------------------------------
-  let observer = null;   // page MutationObserver, or null when disabled here
-  let started = false;   // whether scanning/observing is currently active
+  let observer = null;       // page MutationObserver, or null when disabled here
+  let started = false;       // whether the feature is active on this page
+  let observerPaused = false; // true while suspended (e.g. tab in background)
 
   // A host is disabled when its (normalized) hostname is on the user's list.
   function normHost(h) {
@@ -2736,7 +3117,9 @@
   }
   // Live teardown: undo every conversion this page currently shows.
   function revertAll() {
+    teardownIO();
     document.querySelectorAll("." + MARK_CLASS).forEach((s) => revertSpan(s));
+    unwireHover();
   }
 
   function startObserver() {
@@ -2750,9 +3133,8 @@
         const nodes = Array.from(queue);
         queue.clear();
         for (const node of nodes) {
-          if (!node.isConnected) continue;
-          if (node.nodeType === Node.ELEMENT_NODE && !isSkippable(node)) scan(node);
-          else if (node.nodeType === Node.TEXT_NODE && !isSkippable(node)) processTextNode(node);
+          if (!node.isConnected || isSkippable(node)) continue;
+          collectAndObserve(node);
         }
       }, 300);
     });
@@ -2762,12 +3144,131 @@
     if (observer) { observer.disconnect(); observer = null; }
   }
 
+  // ---------------------------------------------------------------
+  // Viewport-gated conversion
+  //
+  // The expensive work (regex over text, range extraction, span creation,
+  // retained originals) is deferred until content is actually near the
+  // viewport. A lightweight structural pass finds "run-owning" blocks (the
+  // innermost blocks that directly contain a number) and hands them to an
+  // IntersectionObserver; each is converted on first approach, then unobserved.
+  // On a long page, blocks never scrolled to are never converted at all.
+  //
+  // Falls back to an eager full scan where IntersectionObserver is missing.
+  // ---------------------------------------------------------------
+  const HAS_IO = typeof IntersectionObserver !== "undefined";
+  let io = null;
+
+  function ensureIO() {
+    if (!io) io = new IntersectionObserver(onIntersect, { rootMargin: "200px 0px" });
+    return io;
+  }
+  function teardownIO() {
+    if (io) { io.disconnect(); io = null; }
+  }
+  function onIntersect(entries) {
+    if (!started || hostDisabled()) return;
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const el = e.target;
+      if (io) io.unobserve(el);
+      if (el.isConnected && !isSkippable(el)) scanShallow(el);
+    }
+  }
+
+  // A block "owns a run" when it directly holds a number, in a direct text node
+  // or an inline child. Blocks with no digit are never observed or scanned.
+  function ownsRun(el) {
+    for (const node of el.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (node.nodeValue && /\d/.test(node.nodeValue)) return true;
+      } else if (node.nodeType === Node.ELEMENT_NODE &&
+                 (node.tagName === "BR" || isInlineEl(node))) {
+        if (!isSkippable(node) && /\d/.test(node.textContent || "")) return true;
+      }
+    }
+    return false;
+  }
+  function observeBlock(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE || !ownsRun(el)) return;
+    ensureIO().observe(el); // observing an already-observed target is a no-op
+  }
+  // Observe every run-owning block under el, recursing into child blocks so a
+  // big container is never observed (and thus never scanned) as a single unit.
+  function walkBlocks(el) {
+    observeBlock(el);
+    for (const child of el.children) {
+      if (child.nodeType === Node.ELEMENT_NODE && !isInlineEl(child) && !isSkippable(child)) {
+        walkBlocks(child);
+      }
+    }
+  }
+  // Like collectRuns, but does NOT recurse into child blocks (each is observed
+  // and scanned on its own), so a block is converted only when it comes in view.
+  function scanRunsShallow(block) {
+    let run = [];
+    const flush = () => { if (run.length) { processRun(run); run = []; } };
+    const children = Array.prototype.slice.call(block.childNodes);
+    for (const child of children) {
+      if (child.nodeType === Node.TEXT_NODE) run.push(child);
+      else if (child.nodeType === Node.ELEMENT_NODE) {
+        if (isSkippable(child)) flush();
+        else if (child.tagName === "BR" || isInlineEl(child)) run.push(child);
+        else flush(); // child block: handled by its own observation
+      }
+    }
+    flush();
+  }
+  function scanShallow(block) {
+    scanRunsShallow(block);
+    scanSplitPrices(block);
+  }
+  // Entry point in place of scan(): observe run-owning blocks under root (or,
+  // without IntersectionObserver, fall back to an eager full scan).
+  function collectAndObserve(root) {
+    if (!root) return;
+    if (!HAS_IO) { scan(root); return; }
+    if (root.nodeType === Node.TEXT_NODE) { observeBlock(blockAncestor(root)); return; }
+    if (root.nodeType !== Node.ELEMENT_NODE || isSkippable(root)) return;
+    if (isInlineEl(root)) { observeBlock(blockAncestor(root)); return; }
+    walkBlocks(root);
+  }
+
+  // Run work when the main thread is idle, so the initial scan never competes
+  // with page load. Falls back to a timeout where requestIdleCallback is absent.
+  function deferIdle(fn) {
+    if (typeof requestIdleCallback === "function") requestIdleCallback(fn, { timeout: 2000 });
+    else setTimeout(fn, 0);
+  }
+
+  // Begin or resume scanning + observing. The body scan is deferred to idle and
+  // is idempotent (already-converted spans are skipped), so calling this on
+  // resume also catches content added while the tab was in the background.
+  function activate() {
+    if (!started || hostDisabled()) return;
+    observerPaused = false;
+    if (!observer) startObserver();
+    deferIdle(() => { if (started && !hostDisabled() && !observerPaused) collectAndObserve(document.body); });
+  }
+  // Stop observing while the tab is hidden; existing conversions stay in place.
+  function suspend() {
+    stopObserver();
+    teardownIO();
+    observerPaused = true;
+  }
+  // A hidden tab does no mutation work; resume (and catch up) when it returns.
+  document.addEventListener("visibilitychange", () => {
+    if (!started || hostDisabled()) return;
+    if (document.hidden) suspend();
+    else if (observerPaused) activate();
+  });
+
   function start() {
     if (hostDisabled() || started) return;
     started = true;
-    scan(document.body);
-    startObserver();
     loadEncoder();
+    if (document.hidden) observerPaused = true; // wait until first foregrounded
+    else activate();
   }
 
   // Accept only the per-host shape; older flat rule shapes (if any) are dropped.

@@ -252,3 +252,41 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
+
+/* ---- Pick mode: mark a missed unit ---- */
+.mg-pick-box {
+  position: fixed; z-index: 2147483646; pointer-events: none;
+  border: 2px solid #0060df; background: rgba(0, 96, 223, 0.12);
+  border-radius: 3px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45);
+}
+.mg-pick-bar {
+  position: fixed; z-index: 2147483647; left: 50%; bottom: 16px;
+  transform: translateX(-50%);
+  width: max-content; max-width: min(640px, 94vw); box-sizing: border-box;
+  background: #1f2430; color: #fff;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  border-radius: 10px; box-shadow: 0 6px 28px rgba(0, 0, 0, 0.45);
+  padding: 12px 14px;
+}
+.mg-pick-msg { font-weight: 600; }
+.mg-pick-note { color: #b9c0cf; font-size: 12px; margin-top: 6px; }
+.mg-pick-chips, .mg-pick-words {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+  max-height: 30vh; overflow-y: auto;
+}
+.mg-pick-chip, .mg-pick-word {
+  font: inherit; color: #fff; background: #353c4a; border: 1px solid transparent;
+  border-radius: 999px; padding: 6px 12px; cursor: pointer; min-height: 34px;
+}
+.mg-pick-chip:hover, .mg-pick-word:hover { background: #4a90d9; }
+.mg-pick-word-on { background: #0060df; border-color: #8ab4ff; }
+.mg-pick-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.mg-pick-btn {
+  font: inherit; color: #fff; background: #353c4a; border: none;
+  border-radius: 6px; padding: 8px 12px; cursor: pointer; min-height: 36px;
+}
+.mg-pick-btn:hover { background: #4a90d9; }
+.mg-pick-primary { background: #0060df; font-weight: 600; }
+.mg-pick-primary:hover { background: #2b7de9; }
+.mg-pick-primary:disabled { background: #2b3240; color: #8a90a0; cursor: default; }
+.mg-pick-cancel { background: #2b3240; color: #b9c0cf; }
