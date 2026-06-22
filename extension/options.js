@@ -17,7 +17,16 @@
     hoverScales: {},
     catBase: { Speed: "km/h" },
     shareData: false,
+    wordSubs: { soccer: true, aluminum: true },
   };
+
+  // Non-metric word swaps shown under "Other terms". Mirrors WORD_SUBS in
+  // converter.js; each toggles independently.
+  const WORD_TERMS = [
+    { id: "soccer", from: "soccer", to: "football" },
+    { id: "aluminum", from: "aluminum", to: "aluminium" },
+  ];
+  let wordSubsState = {};
 
   const CATS = {
     Length: ["mm", "cm", "m", "km"], Mass: ["mg", "g", "kg", "Mg"],
@@ -245,6 +254,27 @@
     });
   }
 
+  function buildTerms() {
+    const host = document.getElementById("terms");
+    if (!host) return;
+    host.textContent = "";
+    WORD_TERMS.forEach((t) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      const label = document.createElement("label");
+      label.setAttribute("for", "term-" + t.id);
+      label.textContent = t.from + " → " + t.to;
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.id = "term-" + t.id;
+      cb.checked = wordSubsState[t.id] !== false;
+      cb.addEventListener("change", () => { wordSubsState[t.id] = cb.checked; save(); });
+      row.appendChild(label);
+      row.appendChild(cb);
+      host.appendChild(row);
+    });
+  }
+
   function save() {
     const data = {
       priceRounding: $enabled.checked,
@@ -261,6 +291,7 @@
       displayScales: dispState,
       hoverScales: hoverState,
       catBase: baseState,
+      wordSubs: { ...wordSubsState },
     };
     api.storage.local.set(data).then(() => {
       $status.textContent = "Saved";
@@ -287,8 +318,10 @@
     dispState = Object.assign({}, s.displayScales || {});
     hoverState = Object.assign({}, s.hoverScales || {});
     baseState = Object.assign({}, s.catBase || {});
+    wordSubsState = Object.assign({}, s.wordSubs || {});
     buildTiers();
     buildAdv();
+    buildTerms();
     renderExample();
   });
 

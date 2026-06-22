@@ -56,6 +56,7 @@
     encoderModelUrl: "",
     shareData: false,  // consent to upload training examples to the backend
     disabledHosts: [], // hostnames where Metric Glance does not run at all
+    wordSubs: { soccer: true, aluminum: true }, // playful word swaps, toggled per term in Options
   };
   const SAMPLE_RATE = 0.12; // fraction of correct detections logged when logSamples is on
   // Corrections are stored per-hostname under DEFAULT_RULES.hosts, never global.
@@ -1038,6 +1039,53 @@
     return out;
   }
 
+  // Playful word substitutions: not unit conversions and not part of the
+  // numeric pipeline, just a small bit of fun marked with the same underline so
+  // the hover panel and Options can turn them off. Each term toggles
+  // independently via settings.wordSubs[id].
+  const WORD_SUBS = [
+    { id: "soccer", re: /\bsoccer\b/gi, to: "football" },
+    { id: "aluminum", re: /\baluminum\b/gi, to: "aluminium" },
+  ];
+  // Non-global, for cheap presence checks in ownsRun / processRun.
+  const WORD_TEST_RE = /\b(?:soccer|aluminum)\b/i;
+
+  // A term is on unless its flag is explicitly false (so terms added later
+  // default on for existing users).
+  function wordSubOn(id) {
+    const w = settings.wordSubs;
+    return !w || w[id] !== false;
+  }
+  function anyWordSubOn() {
+    return WORD_SUBS.some((w) => wordSubOn(w.id));
+  }
+
+  // Copy the source word's casing onto the replacement (soccer->football,
+  // Soccer->Football, SOCCER->FOOTBALL).
+  function matchCase(src, repl) {
+    if (src && src === src.toUpperCase() && src !== src.toLowerCase()) return repl.toUpperCase();
+    if (src && src[0] === src[0].toUpperCase()) return repl[0].toUpperCase() + repl.slice(1);
+    return repl;
+  }
+
+  function wordCandidates(text) {
+    const out = [];
+    for (const w of WORD_SUBS) {
+      if (!wordSubOn(w.id)) continue;
+      w.re.lastIndex = 0;
+      let m;
+      while ((m = w.re.exec(text)) !== null) {
+        const full = m[0];
+        if (!full) { w.re.lastIndex++; continue; }
+        out.push({
+          start: m.index, end: m.index + full.length,
+          full, kind: "word", display: matchCase(full, w.to), wordId: w.id,
+        });
+      }
+    }
+    return out;
+  }
+
   // Encoder hook. Returns an array of {start,end} the model believes are
   // convertible, or null when no model is active. Today it returns null and
   // we fall back to regex. Once a model is loaded, intersect its spans with
@@ -1225,6 +1273,8 @@
     span.setAttribute("data-kind", c.kind);
     // Record a re-applied "convert as" unit so the hover panel highlights it.
     if (c.forceUnitId) span.setAttribute("data-variant", c.forceUnitId);
+    // Tag word swaps with their term id so the panel can turn just that one off.
+    if (c.wordId) span.setAttribute("data-word", c.wordId);
     span.setAttribute("tabindex", "0");
     span.setAttribute("role", "button");
     span.setAttribute("aria-label", `${c.display}, originally ${c.full.trim()}, activate to review`);
@@ -1263,17 +1313,27 @@
       const v = tn.nodeValue || "";
       for (let i = 0; i < v.length; i++) { text += v[i]; map.push([tn, i]); }
     }
-    if (text.length < 2 || !/\d/.test(text)) return;
+    if (text.length < 2) return;
 
-    const candidates = proposeSpans(text);
-    appendForcedUnitCandidates(text, candidates);
-    const chosen = filterCandidates(text, candidates);
-    if (!chosen.length) return;
+    const hasDigit = /\d/.test(text);
+    // Word substitutions need no number, so they run independently of the
+    // numeric pipeline (and even on runs that contain no digit at all).
+    const words = (anyWordSubOn() && WORD_TEST_RE.test(text)) ? wordCandidates(text) : [];
+    if (!hasDigit && !words.length) return;
+
+    let chosen = [];
+    if (hasDigit) {
+      const candidates = proposeSpans(text);
+      appendForcedUnitCandidates(text, candidates);
+      chosen = filterCandidates(text, candidates);
+    }
+    if (!chosen.length && !words.length) return;
+    chosen = chosen.concat(words);
 
     // Apply right-to-left so earlier matches' node offsets stay valid after
     // we extract later ones (Range.extractContents splits text nodes).
     chosen.sort((a, b) => b.start - a.start);
-    for (const c of chosen) { replaceRange(map, c); maybeLogPositive(c, text); }
+    for (const c of chosen) { replaceRange(map, c); if (c.kind !== "word") maybeLogPositive(c, text); }
   }
 
   // Optionally record a correct detection as a (positive) training example,
@@ -1430,7 +1490,8 @@
   // Single text node (used by the observer for added text nodes).
   function processTextNode(textNode) {
     const text = textNode.nodeValue;
-    if (!text || text.length < 2 || !/\d/.test(text)) return;
+    if (!text || text.length < 2) return;
+    if (!/\d/.test(text) && !(anyWordSubOn() && WORD_TEST_RE.test(text))) return;
     if (isSkippable(textNode)) return;
     processRun([textNode]);
   }
@@ -1936,7 +1997,7 @@
     // The user opened the panel, so they saw this conversion. If they don't
     // correct it, that's a mid-value "seen but accepted" example. Log once per
     // span, only when sample logging is enabled.
-    if (settings.logSamples && !span.__mgSeenLogged) {
+    if (settings.logSamples && kind !== "word" && !span.__mgSeenLogged) {
       span.__mgSeenLogged = true;
       const vid = span.getAttribute("data-variant") || (kind === "price" ? "price" : null);
       logTrainingExample("seen:" + (vid || "unit"), original || span.textContent,
@@ -2032,7 +2093,27 @@
     const numMatch = original.match(/-?\d[\d,]*(?:\.\d+)?/);
     const spanValue = numMatch ? parseFloat(numMatch[0].replace(/,/g, "")) : null;
 
-    if (kind === "price" && c && c.kind === "price") {
+    if (kind === "word") {
+      const wid = span.getAttribute("data-word");
+      addLine("mg-pop-line", original + "  →  " + span.textContent);
+      addLine("mg-pop-rate", "A little flourish, not a measurement.");
+      const off = document.createElement("button");
+      off.type = "button";
+      off.className = "mg-pop-btn";
+      off.setAttribute(UI_ATTR, "1");
+      off.textContent = "Turn off this substitution";
+      off.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const next = { ...(settings.wordSubs || {}) };
+        if (wid) next[wid] = false;
+        settings.wordSubs = next;
+        if (storage) storage.set({ wordSubs: next });
+        hidePanel();
+        revertWords(wid);
+      });
+      el.appendChild(off);
+    } else if (kind === "price" && c && c.kind === "price") {
       addLine("mg-pop-line", original + "  →  " + span.textContent);
       const whole = Math.floor(c.value);
       const gap = 100 - Math.round((c.value - whole) * 100);
@@ -2121,18 +2202,20 @@
       }
     }
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "mg-pop-btn mg-danger";
-    btn.setAttribute(UI_ATTR, "1");
-    btn.textContent = "Mark as incorrect (don't convert)";
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      markFalsePositive(span);
-      hidePanel();
-    });
-    el.appendChild(btn);
+    if (kind !== "word") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mg-pop-btn mg-danger";
+      btn.setAttribute(UI_ATTR, "1");
+      btn.textContent = "Mark as incorrect (don't convert)";
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        markFalsePositive(span);
+        hidePanel();
+      });
+      el.appendChild(btn);
+    }
 
     // Keep open while pointer is over the panel (desktop bridge).
     el.addEventListener("mouseenter", cancelHide);
@@ -3139,6 +3222,13 @@
     unwireHover();
   }
 
+  // Undo word substitutions: a single term when id is given, otherwise all.
+  function revertWords(id) {
+    let sel = "." + MARK_CLASS + "[data-kind='word']";
+    if (id) sel += "[data-word='" + id + "']";
+    document.querySelectorAll(sel).forEach((s) => revertSpan(s));
+  }
+
   function startObserver() {
     let pending = null;
     const queue = new Set();
@@ -3193,15 +3283,19 @@
     }
   }
 
-  // A block "owns a run" when it directly holds a number, in a direct text node
-  // or an inline child. Blocks with no digit are never observed or scanned.
+  // A block "owns a run" when it directly holds a number (or, when word
+  // substitutions are on, a substitutable word), in a direct text node or an
+  // inline child. Blocks with neither are never observed or scanned.
+  function wantsScan(s) {
+    return /\d/.test(s) || (anyWordSubOn() && WORD_TEST_RE.test(s));
+  }
   function ownsRun(el) {
     for (const node of el.childNodes) {
       if (node.nodeType === Node.TEXT_NODE) {
-        if (node.nodeValue && /\d/.test(node.nodeValue)) return true;
+        if (node.nodeValue && wantsScan(node.nodeValue)) return true;
       } else if (node.nodeType === Node.ELEMENT_NODE &&
                  (node.tagName === "BR" || isInlineEl(node))) {
-        if (!isSkippable(node) && /\d/.test(node.textContent || "")) return true;
+        if (!isSkippable(node) && wantsScan(node.textContent || "")) return true;
       }
     }
     return false;
@@ -3318,6 +3412,11 @@
         else { start(); }
       }
       if (changes.mgRules) { adoptRules(changes.mgRules.newValue); touched = true; }
+      // A word term turned off has its existing swaps removed live; rescan
+      // (below) re-adds any term turned back on.
+      if (changes.wordSubs) {
+        WORD_SUBS.forEach((w) => { if (!wordSubOn(w.id)) revertWords(w.id); });
+      }
       if (touched) rescan();
     });
   } else {
