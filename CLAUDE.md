@@ -84,6 +84,23 @@ Both default to `false` in `DEFAULT_SETTINGS` (converter.js) and `DEFAULTS` (opt
 - `logSamples`: whether to log the `seen` and `auto` tiers locally
 - `shareData`: whether to upload stored records to the backend
 
+### Keep the privacy policy in sync (REQUIRED)
+
+Whenever a change affects **what data is collected or how it is used**, update the privacy policy in the same change batch. This includes (non-exhaustively):
+
+- adding, removing, or changing a record field (see `toWire()` in `mg-uploader.js` and the worker's validation)
+- changing a collection tier, default, or consent gate (`logSamples`, `shareData`, the welcome-page defaults)
+- changing retention, the backend destination, or who the data is shared with
+- changing the `install_id` or any other identifier behavior
+
+When that happens, do all of the following together:
+
+1. Edit `docs/privacy.html`: update the relevant text (e.g. the field table) **and** bump the visible "Last updated" date.
+2. Bump the `<meta name="mg-privacy-version">` content in `docs/privacy.html` to that same new "Last updated" date.
+3. Update `CURRENT_PRIVACY_VERSION` in `extension/mg-privacy-watch.js` to match the new marker exactly.
+
+The marker and `CURRENT_PRIVACY_VERSION` must always be equal at release time. The watcher fetches the published page, compares the marker against the version the install last saw, and notifies the user on a change (system notification + a banner in Preferences). If the marker is not bumped, existing users are not told the policy changed.
+
 ### Security model (proportionate to a training set, not money)
 
 - HMAC-SHA256 over `timestamp + "." + rawBody`, plus a +/- 5 min timestamp window
