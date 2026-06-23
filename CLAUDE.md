@@ -148,7 +148,7 @@ Open the background page console (click Inspect on the Metric Glance row in abou
 // Force an upload cycle
 await browser.runtime.sendMessage({ type: "mg-upload-now" })
 
-// Temporarily enable sharing (until options UI sets it)
+// Force-enable sharing without going through Preferences
 await browser.storage.local.set({ shareData: true })
 ```
 
@@ -161,20 +161,27 @@ npm run deploy   // deploy the Worker
 npx wrangler d1 execute metric-glance --remote --command "DELETE FROM submissions"
 ```
 
-### Version bumps
-
-One bump per change batch. A batch equals an AMO upload + GitHub release + repo commit. Verify each feature before bumping.
-
 ### Releasing (automated)
 
-`.github/workflows/release.yml` handles releases. Pushing a tag like `v0.44.0`:
+Releases run through `.github/workflows/release.yml`. One bump per change batch (a batch is one AMO upload + GitHub release + repo commit); verify each feature before bumping. To release: bump the version in `extension/manifest.json`, commit, then push a tag:
 
-1. Guards that the tag (minus the `v`) matches `extension/manifest.json` version, then lints with `web-ext lint`.
-2. Builds the unsigned source zip (`extension/` contents with `manifest.json` at the root, same as `build-zip.ps1`).
-3. Submits to AMO on the **listed** channel via `web-ext sign` (this is what updates the public AMO listing; the unlisted channel does not, so we always use listed).
-4. Creates a GitHub release with auto-generated notes and attaches the source zip. Listed AMO submissions are signed and distributed by Mozilla, so no signed `.xpi` is produced for download; the unsigned zip is the release artifact.
+```bash
+git tag v<version> && git push origin v<version>
+```
 
-Release flow: bump the manifest version, commit, then `git tag v<version> && git push origin v<version>`. Required repo secrets (Settings -> Secrets and variables -> Actions): `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` from addons.mozilla.org/developers/addon/api/key. These are unrelated to the HMAC secret in `mg-uploader.js`. `build-zip.ps1` remains for building a local zip by hand.
+Pushing a `v*` tag runs the workflow, which:
+
+1. Checks the tag (minus the `v`) matches the manifest version, then lints with `web-ext lint`.
+2. Builds the unsigned source zip (contents of `extension/` with `manifest.json` at the root, same as `build-zip.ps1`).
+3. Submits to AMO on the **listed** channel via `web-ext sign`. Listed is what updates the public AMO listing; unlisted does not, so we always use listed. AMO validates and signs, and web-ext downloads the signed `.xpi`.
+4. Creates a GitHub release with auto-generated notes, attaching both the source `.zip` and the signed `.xpi`.
+
+Notes:
+
+- Required repo secrets (Settings -> Secrets and variables -> Actions): `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`, from addons.mozilla.org/developers/addon/api/key. Unrelated to the HMAC secret in `mg-uploader.js`.
+- The workflow can also be run manually (workflow_dispatch). A manual run lints and submits to AMO but skips the tag guard and the GitHub release. It still does a **real AMO submission** of the current manifest version, so do not dispatch a version you are not ready to ship, and do not later tag that same version (AMO rejects a duplicate).
+- Node 24 (current Active LTS) is pinned in the workflow.
+- `build-zip.ps1` still builds a local zip by hand without releasing.
 
 ### Committing
 
@@ -184,17 +191,7 @@ Release flow: bump the manifest version, commit, then `git tag v<version> && git
 
 ## Roadmap
 
-### Done
-
-| Item | Description |
-| ------ | ------------- |
-| #2 | Deploy Cloudflare Worker + D1 backend |
-| #6 | Race-safe hard-delete uploader (mg-uploader.js) |
-| #5 | Settings toggles: logSamples and shareData, with options UI and nudge banner |
-| #4 | First-run consent: welcome.html opens on install, both features default on, user can turn either off before confirming |
-| #3 | Privacy policy published at `docs/privacy.html` (served via GitHub Pages); `data_collection_permissions` in `manifest.json` declares `websiteContent` as optional. AMO data-collection disclosure completed during submission. |
-
-### Remaining
+The data pipeline (backend, uploader, consent UI, privacy policy, AMO disclosure) is complete and live. Remaining work is the detection classifier.
 
 ### Accumulate training data
 
