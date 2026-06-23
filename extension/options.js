@@ -454,4 +454,36 @@
   });
 
   renderSites();
+
+  // ---- Privacy policy update notice ----
+  // The background watcher (mg-privacy-watch.js) sets mgPrivacyNotice when the
+  // published policy changes. Surface it here as a dismissable banner; this is
+  // the in-extension fallback to the system notification.
+  const PRIVACY_URL =
+    "https://ja-ortiz-uniandes.github.io/metric-glance/privacy.html";
+  const $privacyNotice = document.getElementById("privacy-notice");
+  const $privacyView = document.getElementById("privacy-view");
+  const $privacyDismiss = document.getElementById("privacy-dismiss");
+
+  function renderPrivacyNotice() {
+    api.storage.local.get({ mgPrivacyNotice: null }).then((r) => {
+      $privacyNotice.style.display = r.mgPrivacyNotice ? "flex" : "none";
+    });
+  }
+  function clearPrivacyNotice() {
+    api.storage.local.set({ mgPrivacyNotice: null }).then(renderPrivacyNotice);
+  }
+
+  $privacyView.addEventListener("click", () => {
+    if (api.tabs && api.tabs.create) api.tabs.create({ url: PRIVACY_URL });
+    else window.open(PRIVACY_URL, "_blank");
+    clearPrivacyNotice();
+  });
+  $privacyDismiss.addEventListener("click", clearPrivacyNotice);
+
+  api.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.mgPrivacyNotice) renderPrivacyNotice();
+  });
+
+  renderPrivacyNotice();
 })();

@@ -1,14 +1,16 @@
 {
   "manifest_version": 2,
   "name": "Metric Glance",
-  "version": "0.43.0",
+  "version": "0.44.0",
   "description": "Converts imperial units to metric and rounds large prices. Hover (desktop) or tap (mobile) the dotted text to see the original or correct it. Right-click a selection to teach it new conversions.",
   "permissions": [
     "storage",
     "tabs",
     "contextMenus",
     "alarms",
-    "https://mg-collect.metric-glance.workers.dev/*"
+    "notifications",
+    "https://mg-collect.metric-glance.workers.dev/*",
+    "https://ja-ortiz-uniandes.github.io/metric-glance/privacy.html"
   ],
   "commands": {
     "open-picker": {
@@ -22,7 +24,7 @@
     "default_popup": "popup.html"
   },
   "background": {
-    "scripts": ["background.js", "mg-uploader.js"],
+    "scripts": ["background.js", "mg-uploader.js", "mg-privacy-watch.js"],
     "persistent": false
   },
   "options_ui": {

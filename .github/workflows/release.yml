@@ -1,0 +1,76 @@
+name: Release
+
+# Pushing a tag like v0.44.0 lints the extension, submits it to AMO (listed
+# channel), and cuts a GitHub release with the unsigned source .zip attached.
+# Can also be run manually from the Actions tab (workflow_dispatch), which
+# lints and submits without the tag checks.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   AMO_JWT_ISSUER  - the "JWT issuer" from addons.mozilla.org/developers/addon/api/key/
+#   AMO_JWT_SECRET  - the matching "JWT secret"
+# These are NOT the same as the HMAC secret in mg-uploader.js; keep them out of
+# source control.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create the GitHub release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # Guard: never submit a build whose manifest version does not match the tag.
+      - name: Check tag matches manifest version
+        if: github.ref_type == 'tag'
+        run: |
+          manifest_version=$(node -p "require('./extension/manifest.json').version")
+          tag_version="${GITHUB_REF_NAME#v}"
+          echo "manifest=$manifest_version  tag=$tag_version"
+          if [ "$manifest_version" != "$tag_version" ]; then
+            echo "::error::Tag $tag_version does not match manifest version $manifest_version"
+            exit 1
+          fi
+
+      - name: Lint the extension
+        run: npx --yes web-ext lint --source-dir extension
+
+      # Build the unsigned source archive (manifest.json at the archive root),
+      # the same layout build-zip.ps1 produces locally. This is what gets
+      # attached to the GitHub release: listed AMO submissions are distributed
+      # and signed by Mozilla, so web-ext does not hand back a signed .xpi.
+      - name: Build source zip
+        run: |
+          version=$(node -p "require('./extension/manifest.json').version")
+          mkdir -p web-ext-artifacts
+          (cd extension && zip -r -X "../web-ext-artifacts/metric-glance-$version.zip" .)
+
+      - name: Submit to AMO (listed)
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          npx --yes web-ext sign \
+            --channel listed \
+            --source-dir extension \
+            --artifacts-dir web-ext-artifacts
+
+      # Attach the unsigned source zip (always present). If web-ext happened to
+      # produce a signed .xpi too, attach that as well.
+      - name: Create GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=$(ls web-ext-artifacts/*.zip web-ext-artifacts/*.xpi 2>/dev/null || true)
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes $files

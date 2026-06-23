@@ -10,7 +10,7 @@ The extension also ships an off-device data pipeline: it logs labeled training e
 
 - Repo: `github.com/ja-ortiz-uniandes/metric-glance`, branch `main`
 - Local path: `C:\Users\joral\Git projects\metric-glance` (Windows; LF->CRLF git warnings are harmless)
-- Current version: `0.43.0`
+- Current version: `0.44.0`
 - Contact: `metric.glance@proton.me`
 - No build step. Plain JavaScript throughout.
 
@@ -19,6 +19,15 @@ The extension also ships an off-device data pipeline: it logs labeled training e
 ## Formatting constraint
 
 **Do not use em dashes** in any text output: commit messages, code comments, UI copy, docs, or anything else written for this project. Use commas, parentheses, or separate sentences instead.
+
+---
+
+## Python and notebook conventions
+
+These apply to the `train/` tooling (notebook and scripts).
+
+- **Always type-hint Python code.** Annotate function signatures and variable assignments (e.g. `df: pd.DataFrame = ...`, `n: int = ...`), matching the style already in `train/classifier.ipynb`. When a library returns an untyped value (e.g. `train_test_split` is typed as `list[Any]`), use `typing.cast` so the result has a known type.
+- **Imports go at the top of the notebook**, in the first import cell, not scattered in later cells. Add new imports there rather than inline where first used.
 
 ---
 
@@ -32,6 +41,8 @@ extension/          The only thing packaged into the .xpi
   background.js     Desktop right-click menu, keyboard command, onInstalled handler,
                     toolbar-button badge sync, per-site disable-list helpers
   mg-uploader.js    Background uploader: signs and POSTs training records to backend
+  mg-privacy-watch.js  Background watcher: polls the published privacy policy and
+                    notifies the user when its version marker changes
   popup.html        Toolbar-button menu (open settings, toggle this site off/on)
   popup.js          Script for popup.html (external; inline scripts CSP-blocked)
   options.html      Settings page UI
@@ -137,6 +148,17 @@ npx wrangler d1 execute metric-glance --remote --command "DELETE FROM submission
 
 One bump per change batch. A batch equals an AMO upload + GitHub release + repo commit. Verify each feature before bumping.
 
+### Releasing (automated)
+
+`.github/workflows/release.yml` handles releases. Pushing a tag like `v0.44.0`:
+
+1. Guards that the tag (minus the `v`) matches `extension/manifest.json` version, then lints with `web-ext lint`.
+2. Builds the unsigned source zip (`extension/` contents with `manifest.json` at the root, same as `build-zip.ps1`).
+3. Submits to AMO on the **listed** channel via `web-ext sign` (this is what updates the public AMO listing; the unlisted channel does not, so we always use listed).
+4. Creates a GitHub release with auto-generated notes and attaches the source zip. Listed AMO submissions are signed and distributed by Mozilla, so no signed `.xpi` is produced for download; the unsigned zip is the release artifact.
+
+Release flow: bump the manifest version, commit, then `git tag v<version> && git push origin v<version>`. Required repo secrets (Settings -> Secrets and variables -> Actions): `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` from addons.mozilla.org/developers/addon/api/key. These are unrelated to the HMAC secret in `mg-uploader.js`. `build-zip.ps1` remains for building a local zip by hand.
+
 ### Committing
 
 `CLIENT_SECRET` in `mg-uploader.js` is the live HMAC secret and is intentionally kept in source (the secret ships in the .xpi and is extractable regardless). It is fine to commit as-is.
@@ -153,22 +175,9 @@ One bump per change batch. A batch equals an AMO upload + GitHub release + repo 
 | #6 | Race-safe hard-delete uploader (mg-uploader.js) |
 | #5 | Settings toggles: logSamples and shareData, with options UI and nudge banner |
 | #4 | First-run consent: welcome.html opens on install, both features default on, user can turn either off before confirming |
+| #3 | Privacy policy published at `docs/privacy.html` (served via GitHub Pages); `data_collection_permissions` in `manifest.json` declares `websiteContent` as optional. AMO data-collection disclosure completed during submission. |
 
 ### Remaining
-
-### #3: Privacy policy + AMO disclosure (release gate)
-
-This is the only thing blocking a public AMO release that transmits data.
-
-- Publish a privacy policy at a URL. Describe exactly what the pipeline sends (the record fields in the client/server contract above), that the URL is hostname-only, the per-install random ID, retention, and how to opt out.
-- Change `data_collection_permissions` in `manifest.json` from `["none"]` to the correct categories (at minimum `websiteContent`). Verify the current Mozilla allowed enum at submission time.
-- Complete the AMO data-collection disclosure during submission.
-
-Until #3 is done: do not submit a version to AMO that contains the uploader. Keep released builds as local-only by leaving `shareData` defaulting to off in any build that goes to AMO, or hold the release entirely.
-
-### Commit and version bump to 0.38.0
-
-The current working tree contains all the pipeline work. Batch it into one commit and bump.
 
 ### Accumulate training data
 
