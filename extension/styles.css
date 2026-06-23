@@ -65,8 +65,37 @@
   background: #4a90d9;
 }
 
-.mg-toolbar { display: flex; flex-direction: column; gap: 4px; padding: 6px; max-height: 260px; overflow-y: auto; min-width: 180px; }
-.mg-toolbar .mg-tb-btn { width: 100%; text-align: left; white-space: nowrap; margin-top: 0; }
+/* Mobile selection toolbar: pinned as a bottom banner so it never collides
+   with Firefox Android's native copy/search action bar (which draws above the
+   selection). Full-width row of buttons, with safe-area padding for devices
+   with a home indicator. */
+.mg-toolbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  max-width: none;
+  max-height: none;
+  overflow-y: visible;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.35);
+}
+.mg-toolbar .mg-tb-btn {
+  flex: 1 1 0;
+  min-width: 140px;
+  max-width: 240px;
+  text-align: center;
+  white-space: nowrap;
+  margin-top: 0;
+}
 .mg-toolbar .mg-tb-back { background: #2b3240; color: #b9c0cf; }
 
 /* Rich panel lines */

@@ -110,3 +110,12 @@ Now the Firefox permission is the single source of truth. Granting or revoking i
 Local-only logging of your corrections is unchanged and stays independent of this switch. Nothing about it leaves your device.
 
 Because the permission starts out ungranted, anyone who was already sharing will be asked to opt in once more before uploads resume.
+
+## v0.45.2
+
+Two fixes to the correction flow on mobile.
+
+- **Selection toolbar no longer hides behind the native controls.** On Firefox for Android, the in-page "Convert to metric… / Round as price" toolbar was drawn just above the selection, exactly where Firefox places its own copy/search action bar, so the two overlapped. The toolbar is now a banner pinned to the bottom of the screen (clear of the native controls and the home indicator), with the buttons laid out in a row.
+- **The unit picker always offers a starting set.** When you open the picker on a bare number with no surrounding unit text (for example selecting just "72"), the Suggestions section was empty. It now defaults to the most common choices: Treat as price, Inch, Foot, Mile, and Fahrenheit. Suggestions based on the selected text (and the foot/inch prime-mark hint) still take precedence when present.
+
+No change to what data is collected or how conversions are calculated.

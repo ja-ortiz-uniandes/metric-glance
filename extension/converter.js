@@ -719,6 +719,12 @@
     return out.slice(0, 8);
   }
 
+  // When the selection gives no textual hint to go on (a bare number, e.g. the
+  // user selected just "72"), default the picker's Suggestions to the most
+  // common imperial units plus "Treat as price", so there is always a sensible
+  // one-tap starting set instead of an empty section.
+  const DEFAULT_SUGGESTION_IDS = ["in", "ft", "mi", "f"];
+
   // A number written with a prime/apostrophe is a length: a single mark
   // (5', 5′, 5’) means feet, a double mark (5", 5″, 5'') means inches. Used to
   // pin the right unit in the picker's suggestions. Returns "ft", "in", or null.
@@ -2367,7 +2373,7 @@
     toolbar = null;
     pendingRange = null;
   }
-  function showToolbar(selText, rect, range) {
+  function showToolbar(selText, range) {
     hideToolbar();
     pendingRange = range ? range.cloneRange() : null;
     const el = document.createElement("div");
@@ -2375,11 +2381,6 @@
     el.setAttribute(UI_ATTR, "1");
     document.body.appendChild(el);
     toolbar = el;
-
-    const place = () => {
-      el.style.top = window.scrollY + Math.max(6, rect.top - el.offsetHeight - 8) + "px";
-      el.style.left = window.scrollX + rect.left + "px";
-    };
 
     const button = (label, onClick, cls) => {
       const b = document.createElement("button");
@@ -2404,7 +2405,6 @@
 
     el.appendChild(button("Convert to metric…", () => { const r = pendingRange; hideToolbar(); openPicker(r); }));
     el.appendChild(button("Round as price", (b) => done(forcePriceFromSelection(pendingRange), b)));
-    place();
   }
 
   // ---------------------------------------------------------------
@@ -2753,6 +2753,7 @@
       hideTip();
       const q = search.value;
       let suggested = [];
+      let usingDefaults = false;
       if (activeCat === "All" && !q.trim()) {
         suggested = suggestionsFor(hint);
         // A number written with a prime/apostrophe is feet (') or inches (''/"):
@@ -2760,6 +2761,12 @@
         if (primeId) {
           const forced = REG_BY_ID[primeId];
           if (forced) suggested = [forced, ...suggested.filter((e) => e.id !== primeId)];
+        }
+        // No hint at all (bare number): fall back to a common default set so the
+        // Suggestions section is never empty. Price is added via showPriceSug.
+        if (!suggested.length) {
+          suggested = DEFAULT_SUGGESTION_IDS.map((id) => REG_BY_ID[id]).filter(Boolean);
+          usingDefaults = true;
         }
       }
 
@@ -2777,7 +2784,7 @@
         }
         return;
       }
-      const showPriceSug = activeCat === "All" && !q.trim() && isPlausiblePrice;
+      const showPriceSug = activeCat === "All" && !q.trim() && !!priceInfo && (isPlausiblePrice || usingDefaults);
       if (suggested.length || showPriceSug) {
         list.appendChild(sectionHead("Suggestions"));
         if (showPriceSug) list.appendChild(makePriceRow());
@@ -2839,9 +2846,7 @@
     const anchor = sel.anchorNode;
     if (anchor && isSkippable(anchor)) { hideToolbar(); return; }
     const range = sel.getRangeAt(0);
-    if (!range.getBoundingClientRect) { hideToolbar(); return; }
-    const rect = range.getBoundingClientRect();
-    showToolbar(txt, rect, range);
+    showToolbar(txt, range);
   }
 
   document.addEventListener("mouseup", () => setTimeout(handleSelection, 0));
