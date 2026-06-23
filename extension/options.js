@@ -325,10 +325,43 @@
     renderExample();
   });
 
+  // "Share data" is backed by the Firefox "websiteContent" data-collection
+  // permission, so toggling it must actually grant/revoke that permission (which
+  // shows Firefox's own prompt). request()/remove() must run inside a user-input
+  // handler, which a checkbox "change" is. The checkbox ends up reflecting the
+  // real result, even if the user dismisses the prompt. (Only shareData is tied
+  // to the permission; logSamples stays a plain local setting.)
+  const SHARE_PERMISSION = { data_collection: ["websiteContent"] };
+
+  function setShare(want) {
+    if (!api.permissions || !api.permissions.request) {
+      // No permissions API: cannot grant silently, so sharing stays off.
+      $sharedata.checked = false;
+      save();
+      return Promise.resolve(false);
+    }
+    const p = want
+      ? Promise.resolve(api.permissions.request(SHARE_PERMISSION))
+      : Promise.resolve(api.permissions.remove(SHARE_PERMISSION)).then(() => false);
+    return p.catch(() => false).then((granted) => {
+      $sharedata.checked = want ? !!granted : false;
+      save();
+      return $sharedata.checked;
+    });
+  }
+
+  // Reflect the actual permission, in case it was changed via the Firefox UI
+  // since this setting was last written.
+  if (api.permissions && api.permissions.contains) {
+    Promise.resolve(api.permissions.contains(SHARE_PERMISSION))
+      .then((granted) => { $sharedata.checked = !!granted; updateNudge(); })
+      .catch(() => {});
+  }
+
   $enabled.addEventListener("change", save);
   $logsamples.addEventListener("change", save);
-  $sharedata.addEventListener("change", save);
-  $nudgeOn.addEventListener("click", () => { $logsamples.checked = true; $sharedata.checked = true; save(); });
+  $sharedata.addEventListener("change", () => setShare($sharedata.checked));
+  $nudgeOn.addEventListener("click", () => { $logsamples.checked = true; setShare(true); });
   $oom.addEventListener("change", save);
   $dec.addEventListener("change", save);
   $sep.addEventListener("change", save);

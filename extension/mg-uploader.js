@@ -7,9 +7,11 @@
  * scope and a batch is signed exactly once.
  *
  * Consent gate:
- *   Transmits ONLY when settings.shareData === true. It defaults to false, so
- *   until the options toggle (item #5) sets it, this script is completely inert
- *   and nothing leaves the device.
+ *   Transmits ONLY when the Firefox "websiteContent" data-collection permission
+ *   is granted (the toggle under about:addons -> Permissions and data). That
+ *   permission is the single source of truth; the shareData setting just mirrors
+ *   it for the UI. It is optional and ungranted by default, so until the user
+ *   opts in this script is completely inert and nothing leaves the device.
  *
  * Race safety (no transactions in browser.storage.local):
  *   - converter.js only ever APPENDS to mgTraining (inside its own serialized
@@ -54,6 +56,31 @@
   const ALARM = "mg-upload";
   const PERIOD_MIN = 60;             // upload sweep cadence
   const STARTUP_DELAY_MS = 15 * 1000;
+
+  // Sharing consent is the Firefox "websiteContent" data-collection permission
+  // (the toggle under about:addons -> Permissions and data). It is the single
+  // source of truth for whether records may leave the device; the shareData
+  // setting is just a mirror of it for the UI. Only this permission is linked
+  // to sharing; logSamples (local-only logging) is independent.
+  const SHARE_PERMISSION = { data_collection: ["websiteContent"] };
+
+  // Fail closed: if the permissions API is unavailable, never upload.
+  function hasSharePermission() {
+    if (!ext.permissions || !ext.permissions.contains) return Promise.resolve(false);
+    return Promise.resolve(ext.permissions.contains(SHARE_PERMISSION)).catch(() => false);
+  }
+
+  // Keep the shareData setting in sync with the actual permission, so the
+  // options/welcome UI and the share-nudge reflect reality even when the user
+  // flips the Firefox toggle directly. Re-reads the live permission rather than
+  // trusting the event payload, which is robust across background-page unloads.
+  function reconcileShareData() {
+    return hasSharePermission().then((granted) =>
+      getLocal({ shareData: false }).then(({ shareData }) => {
+        if (!!shareData !== granted) return setLocal({ shareData: granted });
+      })
+    );
+  }
 
   // --- tiny helpers -------------------------------------------------------
   function getLocal(defaults) {
@@ -192,8 +219,7 @@
     try {
       if (!CLIENT_SECRET) return; // not configured for this build
 
-      const { shareData } = await getLocal({ shareData: false });
-      if (!shareData) return; // consent gate
+      if (!(await hasSharePermission())) return; // consent gate (Firefox websiteContent)
 
       const installId = await getInstallId();
       const { mgTraining } = await getLocal({ mgTraining: {} });
@@ -247,6 +273,15 @@
   }
   // A nudge shortly after the background script wakes (non-persistent page).
   setTimeout(runCycle, STARTUP_DELAY_MS);
+
+  // Mirror the websiteContent permission into shareData: on every background
+  // wake (covers toggles made while the page was unloaded) and live whenever
+  // the user grants/revokes it in the Firefox UI.
+  reconcileShareData();
+  if (ext.permissions && ext.permissions.onAdded) {
+    ext.permissions.onAdded.addListener(reconcileShareData);
+    ext.permissions.onRemoved.addListener(reconcileShareData);
+  }
 
   // Manual trigger (useful for verifying #5's toggle later):
   //   browser.runtime.sendMessage({ type: "mg-upload-now" })

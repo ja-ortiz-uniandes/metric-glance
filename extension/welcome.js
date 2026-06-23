@@ -31,13 +31,27 @@
   $togLog.addEventListener("change",   () => syncCard($cardLog,   $togLog.checked));
   $togShare.addEventListener("change", () => syncCard($cardShare, $togShare.checked));
 
+  // "Share data" is backed by the Firefox "websiteContent" data-collection
+  // permission, so opting in here must actually request it (Firefox shows its
+  // own prompt). request() must run inside this user-input handler. shareData
+  // ends up reflecting the real grant. logSamples is local-only and unaffected.
   $done.addEventListener("click", () => {
-    ext.storage.local.set({
-      logSamples: $togLog.checked,
-      shareData:  $togShare.checked,
-      showDataConsent: false,
-    });
-    $main.style.display     = "none";
-    $savedMsg.style.display = "block";
+    const wantShare = $togShare.checked;
+    const finish = (shareGranted) => {
+      ext.storage.local.set({
+        logSamples: $togLog.checked,
+        shareData:  shareGranted,
+        showDataConsent: false,
+      });
+      $main.style.display     = "none";
+      $savedMsg.style.display = "block";
+    };
+    if (wantShare && ext.permissions && ext.permissions.request) {
+      Promise.resolve(ext.permissions.request({ data_collection: ["websiteContent"] }))
+        .then((granted) => finish(!!granted))
+        .catch(() => finish(false));
+    } else {
+      finish(false);
+    }
   });
 })();

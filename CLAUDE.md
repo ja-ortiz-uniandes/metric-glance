@@ -10,7 +10,7 @@ The extension also ships an off-device data pipeline: it logs labeled training e
 
 - Repo: `github.com/ja-ortiz-uniandes/metric-glance`, branch `main`
 - Local path: `C:\Users\joral\Git projects\metric-glance` (Windows; LF->CRLF git warnings are harmless)
-- Current version: `0.44.0`
+- Current version: `0.45.0`
 - Contact: `metric.glance@proton.me`
 - No build step. Plain JavaScript throughout.
 
@@ -162,6 +162,8 @@ npx wrangler d1 execute metric-glance --remote --command "DELETE FROM submission
 ```
 
 ### Releasing (automated)
+
+**NEVER push a version tag (`git tag v*` / `git push origin v*`) without the owner's explicit instruction, every single time.** A tag triggers a real AMO submission and public release, so it is never implied by "ship it", "release it", finishing a feature, or bumping the version. Bumping the manifest and committing is fine when asked; the tag push is a separate step that always requires its own explicit go-ahead. The same applies to manually dispatching the release workflow (it also does a real AMO submission).
 
 Releases run through `.github/workflows/release.yml`. One bump per change batch (a batch is one AMO upload + GitHub release + repo commit); verify each feature before bumping. To release: bump the version in `extension/manifest.json`, commit, then push a tag:
 
