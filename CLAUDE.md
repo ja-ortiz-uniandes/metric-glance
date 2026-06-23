@@ -194,7 +194,9 @@ The workflow derives each GitHub release's visibility from the version number:
 
 While the project is in `0.x`, every release is a developer preview. The rule lives in the "Create GitHub release" step of `release.yml`.
 
-Release notes are prose pulled from `CHANGELOG.md`. The workflow takes everything between a heading that exactly matches the tag (`## vX.Y.Z`) and the next `##` heading, and uses it as the release body. The workflow never writes prose itself: if there is no matching section it silently falls back to GitHub's auto-generated commit list. **So the changelog section is a required, human-written step, not something the pipeline produces.** (The older `v1.x` headings in that file are internal feature milestones, not release tags, and are not used by the workflow.)
+This version rule is the **default, not an absolute**. The owner may tell you a given tag should or should not be a pre-release, and that decision wins over the rule. **If there is any doubt about whether a tag is a pre-release, ask the owner before tagging rather than assuming.** Since the workflow has no manual flag, an override is applied by editing the GitHub release after the workflow runs (set `prerelease` and the title via the API or the release UI), the same way the v0.45.1 release was corrected.
+
+Release notes come from `CHANGELOG.md`. The workflow takes everything between a heading that exactly matches the tag (`## vX.Y.Z`) and the next `##` heading, and uses it as the release body. The workflow never writes the notes itself: if there is no matching section it silently falls back to GitHub's auto-generated commit list. **So the changelog section is a required, human-written step, not something the pipeline produces.** (The older `v1.x` headings in that file are internal feature milestones, not release tags, and are not used by the workflow.)
 
 ##### How to write the changelog entry (do this every release, before tagging)
 
@@ -202,7 +204,7 @@ When bumping the version, write the `## v<version>` section like this:
 
 1. Find the previous release tag (`git tag --sort=-v:refname | head`) and review what actually changed since it: `git log v<prev>..HEAD --oneline` and `git diff v<prev>..HEAD` for the substance.
 2. Summarize **only the changes that matter to a user or to a maintainer reading later**. Skip version bumps, internal refactors, CI tweaks, formatting, and anything invisible in use. A release with nothing user-facing can say so in one line.
-3. Write **prose**, not a raw bullet dump of commit subjects. Group related changes, explain what changed and why it matters, and call out any migration or one-time consent re-prompt. Past entries in this file are the style reference.
+3. Write a real summary, **not just a bare compare link**. Bullet points, sub-headings, and structure are all welcome; the point is to actually describe what changed rather than dump raw commit subjects. Group related changes, explain what changed and why it matters, and call out any migration or one-time consent re-prompt. Including a `**Full Changelog**` compare link as well is good, just not as a substitute for the summary. Past entries in this file are the style reference.
 4. No em dashes (see the formatting constraint at the top of this file).
 5. Add the section **before** creating the tag. The workflow reads `CHANGELOG.md` at the tagged commit, so a section added after tagging is not picked up.
 
