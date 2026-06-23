@@ -71,7 +71,7 @@ jobs:
       # Visibility is derived from the version:
       #   - Pre-release ("Developer preview"): the whole 0.x series, and any
       #     version with a non-zero patch (x.y.1, x.y.2, ...). Marked pre-release
-      #     so it is not flagged "Latest", and titled "vX.Y.Z (Developer preview)".
+      #     so it is not flagged "Latest", and titled "vX.Y.Z - Developer preview".
       #   - Full "Latest" release: only major >= 1 with a .0 patch (e.g. v1.0.0).
       #
       # Notes are prose from the matching CHANGELOG.md section ("## vX.Y.Z") when
@@ -89,7 +89,7 @@ jobs:
           title="$GITHUB_REF_NAME"
           if [ "$major" = "0" ] || [ "$patch" != "0" ]; then
             prerelease="--prerelease"
-            title="$GITHUB_REF_NAME (Developer preview)"
+            title="$GITHUB_REF_NAME - Developer preview"
           fi
 
           notes_args="--generate-notes"

@@ -189,7 +189,7 @@ Notes:
 
 The workflow derives each GitHub release's visibility from the version number:
 
-- **Pre-release ("Developer preview")**: the entire `0.x` series, and any version with a non-zero patch (`x.y.1`, `x.y.2`, ...). These are marked as pre-release (so GitHub does not flag them "Latest") and titled `vX.Y.Z (Developer preview)`. Parentheses are used instead of a dash to honor the no-em-dash rule.
+- **Pre-release ("Developer preview")**: the entire `0.x` series, and any version with a non-zero patch (`x.y.1`, `x.y.2`, ...). These are marked as pre-release (so GitHub does not flag them "Latest") and titled `vX.Y.Z - Developer preview` (a plain hyphen, never an em dash, per the formatting rule).
 - **Full "Latest" release**: only `major >= 1` with a `.0` patch (e.g. `v1.0.0`, `v1.3.0`).
 
 While the project is in `0.x`, every release is a developer preview. The rule lives in the "Create GitHub release" step of `release.yml`.
