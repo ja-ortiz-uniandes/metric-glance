@@ -63,9 +63,21 @@ Inside `extension/`:
 | `styles.css`                  | Underlines, panel, picker, and toolbar styles (picker follows Firefox's light/dark theme).                                                 |
 | `icons/`                      | Toolbar/listing icons.                                                                                                                     |
 
-Root files: `CHANGELOG.md` (version-by-version history), `CLAUDE.md` (agent/contributor guide), `LICENSE`.
+Root files: `CHANGELOG.md` (version-by-version history), `CLAUDE.md` (agent/contributor guide), `build-zip.ps1` (local zip builder), `LICENSE`.
 
 Plain JavaScript; there is no build step.
+
+## Releasing
+
+Releases are automated by a GitHub Actions workflow (`.github/workflows/release.yml`). Pushing a version tag does everything:
+
+```bash
+# bump the version in extension/manifest.json first, then:
+git tag v0.45.0
+git push origin v0.45.0
+```
+
+The workflow checks the tag matches the manifest version, lints with `web-ext`, submits the add-on to Firefox Add-ons (AMO), and creates a GitHub release with the packaged files attached. It needs two repo secrets, `AMO_JWT_ISSUER` and `AMO_JWT_SECRET`, from your [AMO API credentials](https://addons.mozilla.org/developers/addon/api/key/). To build a zip locally without releasing, run `./build-zip.ps1`.
 
 ## Training data and privacy
 
