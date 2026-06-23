@@ -65,12 +65,44 @@ jobs:
             --source-dir extension \
             --artifacts-dir web-ext-artifacts
 
-      # Attach the unsigned source zip (always present). If web-ext happened to
-      # produce a signed .xpi too, attach that as well.
+      # Publish the release. Attaches the unsigned source zip (always present);
+      # if web-ext also produced a signed .xpi, that is attached too.
+      #
+      # Visibility is derived from the version:
+      #   - Pre-release ("Developer preview"): the whole 0.x series, and any
+      #     version with a non-zero patch (x.y.1, x.y.2, ...). Marked pre-release
+      #     so it is not flagged "Latest", and titled "vX.Y.Z (Developer preview)".
+      #   - Full "Latest" release: only major >= 1 with a .0 patch (e.g. v1.0.0).
+      #
+      # Notes are prose from the matching CHANGELOG.md section ("## vX.Y.Z") when
+      # present, otherwise GitHub's auto-generated commit notes.
       - name: Create GitHub release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          version="${GITHUB_REF_NAME#v}"
+          major="${version%%.*}"
+          patch="${version##*.}"
+
+          prerelease=""
+          title="$GITHUB_REF_NAME"
+          if [ "$major" = "0" ] || [ "$patch" != "0" ]; then
+            prerelease="--prerelease"
+            title="$GITHUB_REF_NAME (Developer preview)"
+          fi
+
+          notes_args="--generate-notes"
+          if [ -f CHANGELOG.md ]; then
+            awk -v ver="## $GITHUB_REF_NAME" '
+              $0 == ver { flag = 1; next }
+              /^## / { flag = 0 }
+              flag { print }
+            ' CHANGELOG.md > release-notes.md
+            if [ -n "$(tr -d '[:space:]' < release-notes.md)" ]; then
+              notes_args="--notes-file release-notes.md"
+            fi
+          fi
+
           files=$(ls web-ext-artifacts/*.zip web-ext-artifacts/*.xpi 2>/dev/null || true)
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes $files
+          gh release create "$GITHUB_REF_NAME" --title "$title" $prerelease $notes_args $files

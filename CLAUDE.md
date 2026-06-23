@@ -185,6 +185,17 @@ Notes:
 - Node 24 (current Active LTS) is pinned in the workflow.
 - `build-zip.ps1` still builds a local zip by hand without releasing.
 
+#### Pre-releases and release notes
+
+The workflow derives each GitHub release's visibility from the version number:
+
+- **Pre-release ("Developer preview")**: the entire `0.x` series, and any version with a non-zero patch (`x.y.1`, `x.y.2`, ...). These are marked as pre-release (so GitHub does not flag them "Latest") and titled `vX.Y.Z (Developer preview)`. Parentheses are used instead of a dash to honor the no-em-dash rule.
+- **Full "Latest" release**: only `major >= 1` with a `.0` patch (e.g. `v1.0.0`, `v1.3.0`).
+
+While the project is in `0.x`, every release is a developer preview. The rule lives in the "Create GitHub release" step of `release.yml`.
+
+Release notes are prose pulled from `CHANGELOG.md`. The workflow takes everything between a heading that exactly matches the tag (`## vX.Y.Z`) and the next `##` heading, and uses it as the release body. If there is no matching section it falls back to GitHub's auto-generated commit notes. **So when you bump the version, also add a `## v<version>` section to `CHANGELOG.md` with a human-written summary** (the older `v1.x` headings in that file are internal feature milestones, not release tags, and are not used by the workflow).
+
 ### Committing
 
 `CLIENT_SECRET` in `mg-uploader.js` is the live HMAC secret and is intentionally kept in source (the secret ships in the .xpi and is extractable regardless). It is fine to commit as-is.

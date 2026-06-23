@@ -1,6 +1,10 @@
 # Changelog
 
 Version-by-version history of Metric Glance. Newest entries are at the bottom.
+Entries for shipped releases are headed with the exact version tag (`## vX.Y.Z`),
+so the release workflow can pull that section verbatim as the GitHub release notes.
+(The older `v1.x` headings below are internal feature milestones, separate from
+the `0.x` release versioning.)
 
 ---
 
@@ -96,3 +100,13 @@ Manual price on strange markup: selecting a price and choosing "Round as price" 
 - New "Convert selection to metric" menu, organised by category then specific unit, for telling the extension what an unrecognised value is. Right-click (desktop) gives Metric Glance > Convert selection to metric > Length / Weight / Volume / Area / Temperature / Speed > the specific unit. On mobile the in-page toolbar cascades the same way (Convert to metric… > category > unit, with Back). Picking a unit converts the selection on the spot and logs a `convert-as:<id>` training example. "Round selection as a price" remains alongside.
 
 Note on getComputedStyle: the original-styling capture relies on the element being live when the conversion happens (it is), so styling is captured correctly even though the converted span is plain text.
+
+## v0.45.1
+
+Sharing your labeled examples is now controlled by Firefox's own "Share website content with extension developer" switch, found under Add-ons in the "Permissions and data" section. Previously that switch was shown but ignored: the extension decided whether to upload based only on its own in-page checkbox, so turning the Firefox switch off had no effect.
+
+Now the Firefox permission is the single source of truth. Granting or revoking it is mirrored by the "Share data" checkbox in Preferences and on the welcome screen, and toggling either one keeps the other in step. Uploads never happen unless the permission is granted, and if the permission cannot be read the extension fails closed and shares nothing.
+
+Local-only logging of your corrections is unchanged and stays independent of this switch. Nothing about it leaves your device.
+
+Because the permission starts out ungranted, anyone who was already sharing will be asked to opt in once more before uploads resume.
