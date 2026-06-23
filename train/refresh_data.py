@@ -25,9 +25,11 @@ COLLECT_DIR = (HERE / ".." / "collect").resolve()
 DATA_DIR = HERE / "data"
 EXPORT_FILE = DATA_DIR / "submissions.json"
 
-# Same 21-column subset the notebook uses (no install_id / dedup_key / title).
+# Column subset the notebook uses. install_id is included so corrections can be
+# weighted per install (trusted installs count for more); it is a random
+# per-install id, not PII. Still omitted: dedup_key, title, received_at.
 SQL = (
-    "SELECT id, label, tier, span, num, unit, unit_id, "
+    "SELECT id, install_id, label, tier, span, num, unit, unit_id, "
     "before_ctx, after_ctx, sentence, heading, tag, "
     "page_units, span_start, span_end, "
     "interacted, seen, url, lang, locale, client_ts "

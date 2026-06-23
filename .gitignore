@@ -9,3 +9,7 @@ package-lock.json
 train/data/
 *.sql
 !collect/schema.sql
+
+# Local secrets / personal ids (e.g. your own install_id for sample weighting).
+.env
+!.env.example

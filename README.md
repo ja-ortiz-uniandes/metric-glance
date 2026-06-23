@@ -66,6 +66,8 @@ Data sent to the backend is anonymized: hostname only (never the full URL), text
 
 The regex is intended as a temporary detector that also bootstraps training data. The plan is to replace detection (only) with a small open-source token-classification model (BERT-family encoder, fine-tuned on the logged examples) that runs in the browser via transformers.js. The model would predict the specific unit for each quantity, using page context the regex cannot see (site locale, nearby words, currency, "Nutrition Facts", etc.), while the deterministic table continues to do all arithmetic. Because inference needs WebGPU (not yet available in Firefox for Android), the likely rollout is desktop-first with regex remaining the mobile path. The labels the extension logs now (`auto:<unit>`, `interpretation:<unit>`, `convert-as:<unit>`, `not_a_conversion`) are already in the shape that model needs.
 
+The training tooling (D1 export, exploration notebook, model build) lives in `train/`; see [`train/README.md`](train/README.md) for setup.
+
 ## License
 
 MIT, see `LICENSE`.
