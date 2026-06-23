@@ -10,7 +10,7 @@ The extension also ships an off-device data pipeline: it logs labeled training e
 
 - Repo: `github.com/ja-ortiz-uniandes/metric-glance`, branch `main`
 - Local path: `C:\Users\joral\Git projects\metric-glance` (Windows; LF->CRLF git warnings are harmless)
-- Current version: `0.45.0`
+- Current version: `0.45.1`
 - Contact: `metric.glance@proton.me`
 - No build step. Plain JavaScript throughout.
 
