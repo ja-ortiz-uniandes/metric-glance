@@ -119,3 +119,22 @@ Two fixes to the correction flow on mobile.
 - **The unit picker always offers a starting set.** When you open the picker on a bare number with no surrounding unit text (for example selecting just "72"), the Suggestions section was empty. It now defaults to the most common choices: Treat as price, Inch, Foot, Mile, and Fahrenheit. Suggestions based on the selected text (and the foot/inch prime-mark hint) still take precedence when present.
 
 No change to what data is collected or how conversions are calculated.
+
+## v0.46.0
+
+### Undo (Ctrl/Cmd+Z)
+
+Any manual change you make to a page can now be taken back with Ctrl+Z (Cmd+Z on macOS). This covers converting a selection as a unit, rounding a selection as a price, switching an ambiguous value's interpretation, and marking a conversion as "not a conversion". Undo puts the page back the way it was, rolls the saved correction back so it does not silently re-apply, and shows a brief confirmation at the bottom of the screen. It stays out of the way while you are typing in a text field, where the browser's own undo runs instead.
+
+Undo also keeps the training data honest: a conversion you make and then immediately take back leaves no labeled example behind, and undoing the removal of an auto-detected conversion restores it as a machine guess rather than promoting it to a user-authored label.
+
+### Clearer conversions at a glance
+
+- **Fewer, more faithful digits by default.** New installs now show up to 1 decimal place (was 2) and switch to a larger unit sooner, so converted values read more cleanly. If you have already set these in Preferences, your existing choices are kept.
+- **No more misleading "round" values.** Unit selection now avoids coarse units that would distort a value once rounded. For example, 27 inches no longer shows as "1 m" (which is 46% high); it falls back to a finer unit such as centimeters so the number you see stays faithful to the original, even when that smaller unit is not among your enabled tiers.
+
+### Mobile
+
+The toolbar-button menu now fills the screen with larger, easier-to-tap controls on Firefox for Android, instead of rendering as a tiny desktop-sized panel.
+
+No change to what is collected or how it is shared. (A new id is attached to locally logged examples so undo can find and remove them; it is local only and never uploaded.)

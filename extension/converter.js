@@ -41,8 +41,8 @@
     // right (not just corrections), so the eventual training set is balanced.
     logSamples: false,
     // Number formatting
-    maxOrderOfMagnitude: 6, // max integer digits before switching to a bigger unit
-    decimalPlaces: 2,       // max decimals shown
+    maxOrderOfMagnitude: 3, // max integer digits before switching to a bigger unit
+    decimalPlaces: 1,       // max decimals shown
     thousandsSeparator: ",",
     // Which metric tiers to display (global), and optional per-type overrides.
     displayTiers: [-3, -2, 0, 3, 6, 9],
@@ -93,6 +93,134 @@
   }
   function persistRules() {
     if (storage) storage.set({ mgRules: rules });
+  }
+
+  // ---------------------------------------------------------------
+  // Undo (Ctrl/Cmd+Z)
+  //
+  // Every manual change (convert-as, round-as-price, interpretation switch,
+  // mark-incorrect) pushes an inverse onto a per-page stack. Ctrl/Cmd+Z runs
+  // the most recent inverse: it puts the DOM back the way it was and rolls the
+  // persisted correction rules back to their prior snapshot, so the change does
+  // not silently re-apply. The stack lives only for this page load; on reload,
+  // remaining conversions re-apply from the stored rules as usual. The keydown
+  // handler ignores Ctrl/Cmd+Z while a text field is focused, so typing undo in
+  // an input, textarea, or contenteditable still does the normal thing.
+  // ---------------------------------------------------------------
+  const undoStack = [];
+  const UNDO_MAX = 50;
+  // span -> [from, to]: the training-record uid range describing a span the
+  // user created or chose by hand. When such a span is later removed or
+  // re-corrected through the panel/picker, that example is retracted (a
+  // conversion you make and then take back should leave no training data, and
+  // never a positive paired with a contradictory "not a conversion"). Auto
+  // detections are not tracked here, so marking a genuine detector mistake as
+  // incorrect still logs the negative example.
+  const spanTrain = new WeakMap();
+  function retractSpanTrain(span) {
+    const r = spanTrain.get(span);
+    if (r) { removeTrainingByRange(r[0], r[1]); spanTrain.delete(span); }
+    return !!r;
+  }
+  // While set (a few hundred ms after an undo), the scanner skips re-detecting
+  // the text we just put back, so an undone auto-detectable value is not
+  // immediately re-converted.
+  let suppressScanUntil = 0;
+
+  function snapshotRules() {
+    try { return JSON.stringify(rules); } catch (e) { return null; }
+  }
+  // trainRange is [from, to]: the exclusive-lower/inclusive-upper window of
+  // training-record uids this change produced, so undo can retract them (a
+  // conversion the user immediately took back must not be logged as a correct
+  // example, positive or negative).
+  function pushUndo(label, domUndo, rulesBefore, trainRange) {
+    undoStack.push({ label, domUndo, rulesBefore, trainRange });
+    if (undoStack.length > UNDO_MAX) undoStack.shift();
+  }
+  function restoreRules(snap) {
+    if (snap == null) return;
+    try { rules = JSON.parse(snap); persistRules(); } catch (e) { /* keep current rules */ }
+  }
+  function performUndo() {
+    const e = undoStack.pop();
+    if (!e) return false;
+    suppressScanUntil = Date.now() + 600;
+    try { if (typeof e.domUndo === "function") e.domUndo(); } catch (err) { /* node detached */ }
+    restoreRules(e.rulesBefore);
+    if (e.trainRange) removeTrainingByRange(e.trainRange[0], e.trainRange[1]);
+    hidePanel();
+    flashUndo(e.label);
+    return true;
+  }
+  // Capture the parts of a converted span that an in-place re-conversion
+  // changes, so the change can be reversed without recreating the element
+  // (which would lose its retained original content / styles).
+  function spanState(span) {
+    return {
+      text: span.textContent,
+      kind: span.getAttribute("data-kind"),
+      variant: span.getAttribute("data-variant"),
+      aria: span.getAttribute("aria-label"),
+    };
+  }
+  function restoreSpanState(span, s) {
+    if (!span) return;
+    span.textContent = s.text;
+    setAttrOrRemove(span, "data-kind", s.kind);
+    setAttrOrRemove(span, "data-variant", s.variant);
+    setAttrOrRemove(span, "aria-label", s.aria);
+  }
+  function setAttrOrRemove(el, name, value) {
+    if (value == null) el.removeAttribute(name);
+    else el.setAttribute(name, value);
+  }
+  // Undo for a "mark incorrect" / "keep as written": the span was replaced by
+  // its original node(s); put the original span back where they now sit.
+  function reinsertSpan(span, insertedNodes) {
+    return () => {
+      const nodes = (insertedNodes || []).filter((n) => n && n.parentNode);
+      if (!nodes.length || !span) return;
+      const parent = nodes[0].parentNode;
+      parent.insertBefore(span, nodes[0]);
+      for (const n of nodes) if (n.parentNode) n.parentNode.removeChild(n);
+      wireHover();
+    };
+  }
+  function isEditableTarget(t) {
+    if (!t) return false;
+    if (t.nodeType !== Node.ELEMENT_NODE) t = t.parentElement;
+    if (!t) return false;
+    if (t.isContentEditable) return true;
+    const tag = t.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  }
+  // Brief bottom-center confirmation, styled like the pick bar.
+  let toastEl = null;
+  let toastTimer = null;
+  const UNDO_LABELS = {
+    conversion: "Undid conversion",
+    price: "Undid price rounding",
+    interpretation: "Undid interpretation change",
+    removal: "Restored conversion",
+  };
+  function flashUndo(label) {
+    try {
+      if (!toastEl) {
+        toastEl = document.createElement("div");
+        toastEl.className = "mg-toast";
+        toastEl.setAttribute(UI_ATTR, "");
+      }
+      toastEl.textContent = UNDO_LABELS[label] || "Undone";
+      if (!toastEl.parentNode) document.documentElement.appendChild(toastEl);
+      // reflow so the fade-in transition replays on repeated undos
+      void toastEl.offsetWidth;
+      toastEl.classList.add("mg-toast-show");
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        if (toastEl) toastEl.classList.remove("mg-toast-show");
+      }, 1400);
+    } catch (e) { /* toast is best-effort */ }
   }
 
   // --- occurrence anchoring -------------------------------------------------
@@ -183,6 +311,10 @@
   let flushTimer = null;
   let writeChain = Promise.resolve();
   const FLUSH_DELAY = 400;
+  // Monotonic id stamped on every logged record (local only, never uploaded:
+  // toWire() in mg-uploader.js whitelists fields, so _uid is dropped on the
+  // wire). Undo uses it to find and delete the records a change produced.
+  let trainUid = 0;
 
   const CTX_BEFORE = 400;   // context kept before the span
   const CTX_AFTER = 200;    // context kept after (before is ~2x after)
@@ -220,6 +352,29 @@
         capArr(store.seen, TRAIN_CAPS.seen);
         capArr(store.auto, TRAIN_CAPS.auto);
         return storage.set({ mgTraining: store });
+      })
+      .catch(() => {});
+  }
+
+  // Retract the training records produced by an undone change: uids in
+  // (lo, hi]. Drops them from the not-yet-flushed buffer, and appends a delete
+  // to the same serialized write chain flushLog uses, so it runs after any
+  // pending flush and catches records that were already written to storage.
+  function removeTrainingByRange(lo, hi) {
+    if (!(hi > lo)) return;
+    const inRange = (r) => r && r._uid > lo && r._uid <= hi;
+    pendingLog = pendingLog.filter((r) => !inRange(r));
+    if (!storage) return;
+    writeChain = writeChain
+      .then(() => storage.get({ mgTraining: {} }))
+      .then((res) => {
+        const store = migrateTraining(res.mgTraining);
+        let changed = false;
+        for (const tier of ["corrected", "seen", "auto"]) {
+          const kept = store[tier].filter((r) => !inRange(r));
+          if (kept.length !== store[tier].length) { store[tier] = kept; changed = true; }
+        }
+        if (changed) return storage.set({ mgTraining: store });
       })
       .catch(() => {});
   }
@@ -291,6 +446,7 @@
     const nu = splitNumUnit(span);
     const dom = domSignals(opts.node);
     pendingLog.push({
+      _uid: ++trainUid,                       // local handle for undo; stripped by toWire()
       label,
       tier,                                   // corrected | seen | auto (value)
       span,
@@ -780,6 +936,11 @@
   for (const cat in CAT_UNIT_OPTIONS) CATBASE[cat] = { sym: CAT_UNIT_OPTIONS[cat][0].sym, dim: CAT_UNIT_OPTIONS[cat][0].dim };
   const SPECIAL = {}; // (no fixed non-prefix measurements remain)
   const DEFAULT_EXPS = [-3, -2, 0, 3, 6, 9]; // milli, centi, base, kilo, mega, giga
+  // Max relative rounding error fmtScale tolerates before preferring a finer
+  // unit. At low decimalPlaces a coarse unit can be wildly off (0.6858 m shown
+  // as "1 m" is 46% high), so any choice past this is deprioritized in favor of
+  // a more faithful one (cm). At 2+ decimals real units rarely exceed it.
+  const LOSS_TOL = 0.05;
 
   function clampInt(x, lo, hi, dflt) {
     x = parseInt(x, 10);
@@ -826,6 +987,13 @@
     const exps = (per && per.length) ? per
       : ((settings.displayTiers && settings.displayTiers.length) ? settings.displayTiers : DEFAULT_EXPS);
     return scalesFromExps(cat, exps);
+  }
+  // The shipped default ladder for a category. Used as a fallback in fmtScale
+  // when the user's enabled tiers can't render a value without an awkward
+  // leading zero (e.g. cm disabled, so 27 in would otherwise read "0.69 m").
+  function defaultExps(cat) {
+    const per = DEFAULT_SETTINGS.displayTiersByCat && DEFAULT_SETTINGS.displayTiersByCat[cat];
+    return (per && per.length) ? per : DEFAULT_SETTINGS.displayTiers;
   }
   function enabledHoverScales(cat) {
     if (SPECIAL[cat]) {
@@ -885,17 +1053,35 @@
     const units = enabledScales(cat);
     let bestSym = null, bestScore = null, bestV = 0;
     let fbSym = null, fbScore = null, fbV = 0;
-    for (const [sym, f] of units) {
+    const consider = (sym, f) => {
       const v = base / f;
       const rounded = Number(Math.abs(v).toFixed(maxDec));
       const intDigits = rounded >= 1 ? String(Math.floor(rounded)).length : 0;
-      const leadingZero = rounded < 1 ? 1 : 0;
+      // Judge "is this really a sub-1 fraction" from the TRUE value, not the
+      // rounded one: at low decimalPlaces a value like 0.6858 m rounds up to
+      // "1" and would otherwise look like a clean integer, hiding a big error.
+      // Penalizing it pushes selection to a finer unit (cm) that reads >= 1.
+      const leadingZero = Math.abs(v) < 1 ? 1 : 0;
       let ds = rounded.toFixed(maxDec).split(".")[1] || "";
       ds = ds.replace(/0+$/, "");
-      const score = [intDigits > maxOOM ? 1 : 0, leadingZero, intDigits, ds.length, -f];
+      // Relative error from rounding the value at this unit and precision. A
+      // value genuinely >= 1 (so not caught by leadingZero) can still lose a
+      // lot at coarse units (55 in = 1.397 m shown as "1 m" is 28% off); flag
+      // those so a faithful finer unit (140 cm) is preferred.
+      const ab = Math.abs(base);
+      const lossy = ab > 0 && Math.abs(rounded * f - ab) / ab > LOSS_TOL ? 1 : 0;
+      const score = [intDigits > maxOOM ? 1 : 0, lossy, leadingZero, intDigits, ds.length, -f];
       if (betterScore(score, fbScore)) { fbScore = score; fbSym = sym; fbV = v; }
-      if (rounded === 0) continue;
+      if (rounded === 0) return;
       if (betterScore(score, bestScore)) { bestScore = score; bestSym = sym; bestV = v; }
+    };
+    for (const [sym, f] of units) consider(sym, f);
+    // If the best ENABLED scale is lossy or still reads as a leading-zero "0.x"
+    // (or nothing rounded above zero), the configured tiers lack a fine enough
+    // unit. Rather than show e.g. "0.69 m" (or "1 m") for 27 in, reach into the
+    // category's shipped default ladder for a finer, faithful unit (here cm).
+    if ((!bestSym || bestScore[1] === 1 || bestScore[2] === 1) && !SPECIAL[cat]) {
+      for (const [sym, f] of scalesFromExps(cat, defaultExps(cat))) consider(sym, f);
     }
     const sym = bestSym || fbSym || units[units.length - 1][0];
     const v = bestSym ? bestV : fbV;
@@ -1648,7 +1834,9 @@
   // Re-express an already-converted span as a different unit in place
   // (used by the hover panel's alternative options). Keeps the original
   // fragment so revert still works; logs the choice as training data.
-  function reconvertSpan(span, unitId) {
+  // deferUndo: caller will record a combined undo entry itself (used by
+  // setInterpretation, which logs its own example before calling here).
+  function reconvertSpan(span, unitId, deferUndo) {
     const v = REG_BY_ID[unitId] || VARIANT_BY_ID[unitId];
     if (!v || typeof v.toMetric !== "function") return false;
     const original = span.getAttribute("data-original") || "";
@@ -1656,12 +1844,22 @@
     if (!m) return false;
     const value = parseFloat(m[0].replace(/,/g, ""));
     if (!isFinite(value)) return false;
+    const manage = !deferUndo; // caller (setInterpretation) handles these when deferring
+    const rulesBefore = manage ? snapshotRules() : null;
+    const prev = manage ? spanState(span) : null;
+    const tracked = manage && spanTrain.has(span);
+    if (tracked) retractSpanTrain(span); // supersede the hand-made example being changed
+    const trainFrom = trainUid;
     span.textContent = v.fmt(v.toMetric(value));
     span.setAttribute("data-kind", "unit");
     span.setAttribute("data-variant", unitId);
     span.setAttribute("aria-label", `${span.textContent}, originally ${original}, activate to review`);
     logTrainingExample("interpretation:" + unitId, original, span.parentElement ? span.parentElement.textContent : original, { node: span, unitId: unitId, interacted: true });
     recordForceUnit(span, original, unitId);
+    if (manage) {
+      if (tracked) spanTrain.set(span, [trainFrom, trainUid]);
+      pushUndo("interpretation", () => restoreSpanState(span, prev), rulesBefore, [trainFrom, trainUid]);
+    }
     return true;
   }
 
@@ -1670,6 +1868,8 @@
     if (!range || range.collapsed) return { ok: false, reason: "empty" };
     const variant = REG_BY_ID[unitId] || VARIANT_BY_ID[unitId];
     if (!variant || typeof variant.toMetric !== "function") return { ok: false, reason: "bad_unit" };
+    const rulesBefore = snapshotRules();
+    const trainFrom = trainUid;
 
     const ca = range.commonAncestorContainer;
     const ctxEl = ca.nodeType === Node.ELEMENT_NODE ? ca : ca.parentElement;
@@ -1765,14 +1965,18 @@
         cleanupEmptyInline(span.previousSibling, "prev");
         cleanupEmptyInline(span.nextSibling, "next");
         ensureSpacing(span);
+        const f = trainUid;
         logTrainingExample("convert-as:" + unitId, c.full, ctxText, { interacted: true, node: ctxEl, unitId });
         recordForceUnit(span, c.full, unitId);
+        spanTrain.set(span, [f, trainUid]);
         spans.push(span);
       }
       return spans;
     })();
 
     if (insertedSpans.length > 0) {
+      const spans = insertedSpans.slice();
+      pushUndo("conversion", () => { for (const s of spans) { retractSpanTrain(s); revertSpan(s); } }, rulesBefore, [trainFrom, trainUid]);
       const sel = window.getSelection();
       if (sel) sel.removeAllRanges();
       setTimeout(() => showPanelFor(insertedSpans[insertedSpans.length - 1]), 0);
@@ -1807,8 +2011,11 @@
     range.insertNode(span);
     ensureSpacing(span);
 
+    const fSingle = trainUid;
     logTrainingExample("convert-as:" + unitId, selText, ctxText, { interacted: true, node: ctxEl, unitId });
     recordForceUnit(span, selText, unitId);
+    spanTrain.set(span, [fSingle, trainUid]);
+    pushUndo("conversion", () => { retractSpanTrain(span); revertSpan(span); }, rulesBefore, [trainFrom, trainUid]);
     wireHover();
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
@@ -1822,6 +2029,8 @@
   function forcePriceFromSelection(range, force) {
     if (force === undefined) force = true;
     if (!range || range.collapsed) return { ok: false, reason: "empty" };
+    const rulesBefore = snapshotRules();
+    const trainFrom = trainUid;
     const _ca = range.commonAncestorContainer;
     const _ctxEl = _ca && _ca.nodeType === Node.ELEMENT_NODE ? _ca : _ca && _ca.parentElement;
     const priceCtx = _ctxEl ? _ctxEl.textContent : range.toString();
@@ -1889,8 +2098,11 @@
     range.insertNode(span);
     ensureSpacing(span);
 
+    const fPrice = trainUid;
     logTrainingExample("price", priceStr || selText, priceCtx, { interacted: true, node: _ctxEl, unitId: "price" });
     if (force) recordForcePrice(span, priceStr || selText);
+    spanTrain.set(span, [fPrice, trainUid]);
+    pushUndo("price", () => { retractSpanTrain(span); revertSpan(span); }, rulesBefore, [trainFrom, trainUid]);
     wireHover();
     const sel = window.getSelection();
     if (sel) sel.removeAllRanges();
@@ -1904,6 +2116,11 @@
     const original = span.getAttribute("data-original") || "";
     const p = parsePriceText(original);
     if (!p) return { ok: false, reason: "no_price" };
+    const rulesBefore = snapshotRules();
+    const prev = spanState(span);
+    const tracked = spanTrain.has(span);
+    if (tracked) retractSpanTrain(span); // supersede the hand-made example being changed
+    const trainFrom = trainUid;
     const rounded = roundedPriceValue(p.value, force);
     const cents = Math.round((p.value - Math.floor(p.value)) * 100);
     const sym = p.symbol.replace(/\s+$/, "");
@@ -1916,29 +2133,72 @@
     span.setAttribute("aria-label", `${disp}, originally ${original}, activate to review`);
     logTrainingExample("price", original, span.parentElement ? span.parentElement.textContent : original, { node: span, unitId: "price", interacted: true });
     if (force) recordForcePrice(span, original);
+    if (tracked) spanTrain.set(span, [trainFrom, trainUid]);
+    pushUndo("price", () => restoreSpanState(span, prev), rulesBefore, [trainFrom, trainUid]);
     return { ok: true };
+  }
+
+  // Undoing a deletion does not resurrect the deleted record; it logs a fresh
+  // one for the conversion that just came back. That record must reflect where
+  // the conversion came from: a hand-made one is a user (corrected) example,
+  // while a restored auto-detection stays an "auto" example, so an undo never
+  // promotes a machine guess into a user-authored label.
+  function relogRestoredConversion(span, wasUserMade) {
+    if (!span || !span.isConnected) return;
+    const kind = span.getAttribute("data-kind");
+    const variant = span.getAttribute("data-variant");
+    const original = span.getAttribute("data-original") || "";
+    const ctx = span.parentElement ? span.parentElement.textContent : original;
+    const from = trainUid;
+    if (wasUserMade) {
+      if (kind === "price") {
+        logTrainingExample("price", original, ctx, { node: span, unitId: "price", interacted: true });
+      } else {
+        logTrainingExample("convert-as:" + (variant || "unit"), original, ctx, { node: span, unitId: variant || null, interacted: true });
+      }
+      spanTrain.set(span, [from, trainUid]); // still hand-made, so still tracked
+    } else {
+      const id = kind === "price" ? "price" : (variant || "unit");
+      logTrainingExample("auto:" + id, original, ctx, { tier: "auto", node: span, unitId: kind === "price" ? "price" : (variant || null) });
+    }
   }
 
   // User marked an existing conversion as wrong. Record a per-occurrence block
   // (anchored before we revert, while the span is still in the page) and revert
   // just this span; other identical text elsewhere is untouched.
   function markFalsePositive(span) {
+    const rulesBefore = snapshotRules();
     const original = span.getAttribute("data-original");
     recordBlock(span, original);
-    const parentText = span.parentElement ? span.parentElement.textContent : "";
-    const ctx = parentText.replace(span.textContent, original);
-    logTrainingExample("not_a_conversion", original, ctx, { node: span, unitId: span.getAttribute("data-variant") || null });
-    revertSpan(span);
+    const trainFrom = trainUid;
+    // If the user is taking back a conversion they made by hand, retract that
+    // example instead of logging a contradictory "not a conversion". For an
+    // auto-detected span the detector got wrong, log the negative as before.
+    const wasUserMade = retractSpanTrain(span);
+    if (!wasUserMade) {
+      const parentText = span.parentElement ? span.parentElement.textContent : "";
+      const ctx = parentText.replace(span.textContent, original);
+      logTrainingExample("not_a_conversion", original, ctx, { node: span, unitId: span.getAttribute("data-variant") || null });
+    }
+    const inserted = revertSpan(span);
+    const putBack = reinsertSpan(span, inserted);
+    pushUndo("removal", () => { putBack(); relogRestoredConversion(span, wasUserMade); }, rulesBefore, [trainFrom, trainUid]);
   }
 
+  // Returns the node(s) inserted in the span's place, so an undo can find them
+  // and swap the original span back in.
   function revertSpan(span) {
-    if (!span.parentNode) return;
+    if (!span.parentNode) return [];
     const frag = originalContent.get(span);
     if (frag) {
-      span.parentNode.replaceChild(frag.cloneNode(true), span);
-    } else {
-      span.parentNode.replaceChild(document.createTextNode(span.getAttribute("data-original")), span);
+      const clone = frag.cloneNode(true);
+      const nodes = Array.from(clone.childNodes); // captured before they move into the DOM
+      span.parentNode.replaceChild(clone, span);
+      return nodes;
     }
+    const tn = document.createTextNode(span.getAttribute("data-original"));
+    span.parentNode.replaceChild(tn, span);
+    return [tn];
   }
 
   // User chose a different interpretation for an ambiguous quantity from the
@@ -1947,12 +2207,20 @@
   // form (money "kept as written"), record a block and revert just this span.
   function setInterpretation(span, original, variantId, context) {
     const v = REG_BY_ID[variantId] || VARIANT_BY_ID[variantId];
+    const rulesBefore = snapshotRules();
+    const tracked = spanTrain.has(span);
+    if (tracked) retractSpanTrain(span); // supersede a hand-made reading being changed
+    const trainFrom = trainUid;
     logTrainingExample("interpretation:" + variantId, original, context || "", { unitId: variantId, interacted: true });
     if (!v || v.money || typeof v.toMetric !== "function") {
       recordBlock(span, original);
-      revertSpan(span);
+      const inserted = revertSpan(span); // span removed; nothing left to track
+      pushUndo("interpretation", reinsertSpan(span, inserted), rulesBefore, [trainFrom, trainUid]);
     } else {
-      reconvertSpan(span, variantId); // re-renders in place and records the forced unit
+      const prev = spanState(span);
+      reconvertSpan(span, variantId, true); // defer: supersede/track/undo handled here
+      if (tracked) spanTrain.set(span, [trainFrom, trainUid]);
+      pushUndo("interpretation", () => restoreSpanState(span, prev), rulesBefore, [trainFrom, trainUid]);
     }
   }
 
@@ -2317,6 +2585,17 @@
       togglePanelFor(e.target);
     }
     if (e.key === "Escape") { hidePanel(); hideToolbar(); closePicker(); }
+    // Ctrl/Cmd+Z undoes the most recent Metric Glance change. Stay out of the
+    // way of text fields (let their native undo run) and of Shift+Ctrl+Z redo,
+    // and only swallow the keystroke when there is actually something to undo.
+    if (
+      (e.key === "z" || e.key === "Z") &&
+      (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey &&
+      !isEditableTarget(e.target) &&
+      undoStack.length > 0
+    ) {
+      if (performUndo()) { e.preventDefault(); e.stopPropagation(); }
+    }
   });
 
   document.addEventListener("scroll", () => { hidePanel(); hideToolbar(); }, true);
@@ -3343,6 +3622,9 @@
   // without IntersectionObserver, fall back to an eager full scan).
   function collectAndObserve(root) {
     if (!root) return;
+    // Just after an undo, skip re-scanning so the text we restored is not
+    // immediately re-detected and re-converted.
+    if (suppressScanUntil && Date.now() < suppressScanUntil) return;
     if (!HAS_IO) { scan(root); return; }
     if (root.nodeType === Node.TEXT_NODE) { observeBlock(blockAncestor(root)); return; }
     if (root.nodeType !== Node.ELEMENT_NODE || isSkippable(root)) return;

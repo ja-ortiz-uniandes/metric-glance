@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -60,6 +61,21 @@
       body { color: #e6e8ee; background: #2a2d35; }
       .site { border-bottom-color: #3a3e48; }
       .item:hover, .item:focus-visible { background: #383c46; }
+    }
+    /* Mobile (Firefox Android): the popup fills the screen instead of being a
+     * small panel. The desktop popup viewport is only 248px wide, so anything
+     * wider is the full-screen mobile case. Scale up width, fonts, and touch
+     * targets so the menu is comfortably tappable. */
+    @media (min-width: 300px) {
+      body { width: auto; font-size: 17px; }
+      .site { padding: 16px 18px 12px; }
+      .site .label { font-size: 13px; }
+      .site .host { font-size: 16px; margin-top: 4px; }
+      .site .state { font-size: 15px; margin-top: 6px; }
+      .menu { padding: 8px; }
+      .item { gap: 14px; padding: 14px 14px; border-radius: 10px; }
+      .item .ico { width: 26px; font-size: 22px; }
+      .item .sub { font-size: 14px; margin-top: 3px; }
     }
   </style>
 </head>
