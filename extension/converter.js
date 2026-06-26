@@ -492,6 +492,23 @@
     { name: "mph", pattern: "(?:mph|miles?\\s+per\\s+hour|miles?\\s*/\\s*h(?:ou)?r?)", variants: [
       { id: "mph", label: "Speed (mph → km/h)", toMetric: (v) => v * 1.609344, fmt: (v) => fmtScale("Speed", v/3.6), rate: "1 mph = 1.609 km/h" },
     ] },
+    // Volumetric flow. These must precede cuft and gallons below so that
+    // "cubic feet per minute" / "gallons per minute" win over the bare-volume
+    // patterns (regex alternation tries earlier entries first).
+    { name: "cfm", pattern: "(?:cfm|cubic\\s+f(?:oot|eet)\\s+per\\s+min(?:ute)?|cu\\.?\\s*ft\\.?\\s*/\\s*min(?:ute)?|ft(?:³|\\^?3)\\s*/\\s*min(?:ute)?)", variants: [
+      { id: "cfm", label: "Air flow (CFM → m³/h)", toMetric: (v) => v * 1.69901082, fmt: (v) => `${smartRound(v)}\u00A0m³/h`, rate: "1 CFM = 1.699 m³/h" },
+    ] },
+    { name: "cfh", pattern: "(?:cfh|cubic\\s+f(?:oot|eet)\\s+per\\s+h(?:ou)?r|cu\\.?\\s*ft\\.?\\s*/\\s*h(?:ou)?r?|ft(?:³|\\^?3)\\s*/\\s*h(?:ou)?r?)", variants: [
+      { id: "cfh", label: "Gas flow (CFH → m³/h)", toMetric: (v) => v * 0.0283168466, fmt: (v) => `${smartRound(v)}\u00A0m³/h`, rate: "1 CFH = 0.0283 m³/h" },
+    ] },
+    { name: "gpm", pattern: "(?:(?:imp(?:erial)?|u\\.?\\s?s\\.?|us)\\s+)?(?:gpm|gallons?\\s+per\\s+min(?:ute)?|gal\\.?\\s*/\\s*min(?:ute)?)", variants: [
+      { id: "usgpm", label: "Flow (US GPM → L/min)", toMetric: (v) => v * 3.785412, fmt: (v) => `${smartRound(v)}\u00A0L/min`, rate: "1 US GPM = 3.785 L/min", surfaces: /^(?!.*imp)/i },
+      { id: "impgpm", label: "Flow (imperial GPM → L/min)", toMetric: (v) => v * 4.54609, fmt: (v) => `${smartRound(v)}\u00A0L/min`, rate: "1 imp GPM = 4.546 L/min", surfaces: /^(?!.*u\.?s)/i },
+    ] },
+    { name: "gph", pattern: "(?:(?:imp(?:erial)?|u\\.?\\s?s\\.?|us)\\s+)?(?:gph|gallons?\\s+per\\s+h(?:ou)?r|gal\\.?\\s*/\\s*h(?:ou)?r?)", variants: [
+      { id: "usgph", label: "Flow (US GPH → L/h)", toMetric: (v) => v * 3.785412, fmt: (v) => `${smartRound(v)}\u00A0L/h`, rate: "1 US GPH = 3.785 L/h", surfaces: /^(?!.*imp)/i },
+      { id: "impgph", label: "Flow (imperial GPH → L/h)", toMetric: (v) => v * 4.54609, fmt: (v) => `${smartRound(v)}\u00A0L/h`, rate: "1 imp GPH = 4.546 L/h", surfaces: /^(?!.*u\.?s)/i },
+    ] },
     { name: "sqft", pattern: "(?:sq\\.?\\s*ft\\.?|square\\s+feet|square\\s+foot|ft²)", variants: [
       { id: "sqft", label: "Area (sq ft → m²)", toMetric: (v) => v * 0.09290304, fmt: (v) => fmtScale("Area", v), rate: "1 sq ft = 0.0929 m²" },
     ] },
@@ -709,11 +726,20 @@
     { id: "hp_mech", cat: "Power", name: "Horsepower (mechanical)", rank: 1, aliases: ["horsepower", "hp", "mechanical horsepower", "bhp"], toMetric: (v) => v * 745.699872, fmt: (v) => formatPower(v), rate: "1 hp = 745.7 W" },
     { id: "hp_metric", cat: "Power", name: "Metric horsepower (PS)", rank: 2, aliases: ["metric horsepower", "ps", "cv", "pferdestarke"], toMetric: (v) => v * 735.49875, fmt: (v) => formatPower(v), rate: "1 PS = 735.5 W" },
     { id: "hp_elec", cat: "Power", name: "Electrical horsepower", rank: 4, aliases: ["electrical horsepower", "electric horsepower"], toMetric: (v) => v * 746, fmt: (v) => formatPower(v), rate: "1 elec hp = 746 W" },
+
+    // Flow (volumetric flow rate). Like Temperature, these render a fixed
+    // metric unit via a custom fmt rather than the prefix scale engine.
+    { id: "cfm", cat: "Flow", name: "Cubic feet per minute (CFM)", rank: 1, aliases: ["cfm", "cubic feet per minute", "cu ft/min", "ft³/min"], toMetric: (v) => v * 1.69901082, fmt: (v) => `${smartRound(v)}\u00A0m³/h`, rate: "1 CFM = 1.699 m³/h" },
+    { id: "cfh", cat: "Flow", name: "Cubic feet per hour (CFH)", rank: 4, aliases: ["cfh", "cubic feet per hour", "cu ft/hr", "ft³/hr"], toMetric: (v) => v * 0.0283168466, fmt: (v) => `${smartRound(v)}\u00A0m³/h`, rate: "1 CFH = 0.0283 m³/h" },
+    { id: "usgpm", cat: "Flow", name: "US gallons per minute (GPM)", rank: 1, aliases: ["gpm", "gallons per minute", "us gpm", "gal/min"], toMetric: (v) => v * 3.785412, fmt: (v) => `${smartRound(v)}\u00A0L/min`, rate: "1 US GPM = 3.785 L/min" },
+    { id: "impgpm", cat: "Flow", name: "Imperial gallons per minute (GPM)", rank: 4, aliases: ["imperial gpm", "uk gpm", "imp gallons per minute"], toMetric: (v) => v * 4.54609, fmt: (v) => `${smartRound(v)}\u00A0L/min`, rate: "1 imp GPM = 4.546 L/min" },
+    { id: "usgph", cat: "Flow", name: "US gallons per hour (GPH)", rank: 3, aliases: ["gph", "gallons per hour", "us gph", "gal/hr"], toMetric: (v) => v * 3.785412, fmt: (v) => `${smartRound(v)}\u00A0L/h`, rate: "1 US GPH = 3.785 L/h" },
+    { id: "impgph", cat: "Flow", name: "Imperial gallons per hour (GPH)", rank: 5, aliases: ["imperial gph", "uk gph"], toMetric: (v) => v * 4.54609, fmt: (v) => `${smartRound(v)}\u00A0L/h`, rate: "1 imp GPH = 4.546 L/h" },
   ];
 
   const REG_BY_ID = {};
   for (const e of REGISTRY) REG_BY_ID[e.id] = e;
-  const REG_CATEGORIES = ["Length", "Mass", "Volume", "Area", "Temperature", "Speed", "Energy", "Power", "Pressure", "Density"];
+  const REG_CATEGORIES = ["Length", "Mass", "Volume", "Area", "Temperature", "Speed", "Flow", "Energy", "Power", "Pressure", "Density"];
   // The handful surfaced directly in the desktop right-click menu (fast path).
   const COMMON_IDS = ["in", "ft", "mi", "lb", "oz", "usfloz", "usgal", "f"];
 
@@ -738,6 +764,8 @@
     ["cal", "kcal"],                          // calorie (small / large)
     ["hp_mech", "hp_metric", "hp_elec"],      // horsepower
     ["atm", "at_tech"],                       // atmosphere (standard / technical)
+    ["usgpm", "impgpm"],                      // gallons per minute (US / imperial)
+    ["usgph", "impgph"],                      // gallons per hour (US / imperial)
   ];
   const ALT_BY_ID = {};
   for (const cl of ALT_CLUSTERS) for (const id of cl) ALT_BY_ID[id] = cl;
@@ -821,6 +849,12 @@
     ac: "Acre (0.4047 ha). Land area.",
     sqft: "Square foot (0.0929 m²). Floor area in the US/UK.",
     bbl_oil: "Oil barrel (159 L). Petroleum industry; other barrels differ.",
+    cfm: "Cubic feet per minute (1.699 m³/h). Airflow for fans, HVAC and compressors.",
+    cfh: "Cubic feet per hour (0.0283 m³/h). Natural-gas appliance flow.",
+    usgpm: "US gallons per minute (3.785 L/min). Pump and plumbing flow rates.",
+    impgpm: "Imperial gallons per minute (4.546 L/min). UK / Commonwealth pump and plumbing flow.",
+    usgph: "US gallons per hour (3.785 L/h). Slower liquid flow, e.g. fuel or dosing.",
+    impgph: "Imperial gallons per hour (4.546 L/h). UK / Commonwealth slow liquid flow.",
   };
   function infoFor(e) { return INFO_BY_ID[e.id] || `${e.name || e.label}. ${e.rate}.`; }
 

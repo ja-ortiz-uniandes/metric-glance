@@ -138,3 +138,18 @@ Undo also keeps the training data honest: a conversion you make and then immedia
 The toolbar-button menu now fills the screen with larger, easier-to-tap controls on Firefox for Android, instead of rendering as a tiny desktop-sized panel.
 
 No change to what is collected or how it is shared. (A new id is attached to locally logged examples so undo can find and remove them; it is local only and never uploaded.)
+
+## v0.46.1
+
+### New unit: airflow and liquid flow rates
+
+Adds a new "Flow" category so common US/imperial flow-rate units are now detected on the page and available in the unit picker:
+
+- **CFM** (cubic feet per minute), converted to m³/h. The usual rating for fans, HVAC and air compressors. Recognizes "CFM", "cubic feet per minute", "cu ft/min" and "ft³/min".
+- **CFH** (cubic feet per hour), converted to m³/h. Natural-gas appliance flow.
+- **GPM** (gallons per minute), converted to L/min, with US and imperial interpretations. Pump and plumbing flow.
+- **GPH** (gallons per hour), converted to L/h, also US and imperial.
+
+These are matched ahead of the plain "gallons" and "cubic feet" volume units, so "5 gallons per minute" reads as a flow rate rather than a bare volume. As with other ambiguous units, hovering a GPM/GPH value lets you switch between the US and imperial reading.
+
+No change to what data is collected or how it is shared.
