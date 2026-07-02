@@ -5,6 +5,9 @@
   const DEFAULTS = {
     priceRounding: true,
     priceRoundCents: 60,
+    priceNextTen: true,
+    priceNextTenDigit: 9,
+    priceNextTenMin: 19,
     logSamples: false,
     maxOrderOfMagnitude: 3,
     decimalPlaces: 1,
@@ -67,6 +70,9 @@
 
   const $enabled = document.getElementById("enabled");
   const $cents = document.getElementById("cents");
+  const $nextten = document.getElementById("nextten");
+  const $tendigit = document.getElementById("tendigit");
+  const $tenmin = document.getElementById("tenmin");
   const $status = document.getElementById("status");
   const $example = document.getElementById("example");
   const $logsamples = document.getElementById("logsamples");
@@ -93,14 +99,32 @@
     if (!isFinite(n)) n = DEFAULTS.priceRoundCents;
     return Math.min(99, Math.max(1, n));
   }
+  function clampDigit(v) {
+    let n = parseInt(v, 10);
+    if (!isFinite(n)) n = DEFAULTS.priceNextTenDigit;
+    return Math.min(9, Math.max(1, n));
+  }
+  function clampMin(v) {
+    let n = parseInt(v, 10);
+    if (!isFinite(n)) n = DEFAULTS.priceNextTenMin;
+    return Math.min(999999999, Math.max(0, n));
+  }
 
-  function roundUp(value, threshold) {
+  // Mirrors roundedPriceValue() in converter.js (unforced path).
+  function roundUp(value, threshold, nextTen, digit, min) {
     const whole = Math.floor(value);
     const fracCents = Math.round((value - whole) * 100);
-    if (fracCents === 0) return null;
-    const gapCents = 100 - fracCents;
-    if (gapCents > threshold) return null;
-    return whole + 1;
+    let next = null;
+    if (fracCents !== 0) {
+      const gapCents = 100 - fracCents;
+      if (gapCents > threshold) return null;
+      next = whole + 1;
+    }
+    const base = next === null ? whole : next;
+    if (nextTen && base > 0 && base % 10 === digit && base >= min) {
+      return base + (10 - digit);
+    }
+    return next;
   }
 
   function renderExample() {
@@ -109,11 +133,18 @@
       return;
     }
     const t = clampCents($cents.value);
-    const samples = [1.99, 2.5, 2.01];
+    const nextTen = $nextten.checked;
+    const digit = clampDigit($tendigit.value);
+    const min = clampMin($tenmin.value);
+    // Smallest whole price ending in the digit at or above the minimum.
+    const atMin = min + ((digit - (min % 10)) + 10) % 10;
+    const samples = [1.99, 2.5, 2.01, atMin];
+    if (nextTen && digit < min) samples.push(digit); // below-minimum case
     const parts = samples.map((v) => {
-      const r = roundUp(v, t);
-      const shown = r === null ? "stays $" + v.toFixed(2) : "$" + r;
-      return "$" + v.toFixed(2) + " \u2192 " + shown;
+      const r = roundUp(v, t, nextTen, digit, min);
+      const from = "$" + (Number.isInteger(v) ? v.toLocaleString("en-US") : v.toFixed(2));
+      const shown = r === null ? "stays " + from : "$" + r.toLocaleString("en-US");
+      return from + " \u2192 " + shown;
     });
     $example.textContent =
       "At " + t + "\u00A2: " + parts.join(" \u00A0\u00B7\u00A0 ");
@@ -279,6 +310,9 @@
     const data = {
       priceRounding: $enabled.checked,
       priceRoundCents: clampCents($cents.value),
+      priceNextTen: $nextten.checked,
+      priceNextTenDigit: clampDigit($tendigit.value),
+      priceNextTenMin: clampMin($tenmin.value),
       logSamples: $logsamples.checked,
       shareData: $sharedata.checked,
       maxOrderOfMagnitude: clampNum($oom.value, 1, 12, 6),
@@ -305,6 +339,9 @@
     const s = { ...DEFAULTS, ...stored };
     $enabled.checked = !!s.priceRounding;
     $cents.value = clampCents(s.priceRoundCents);
+    $nextten.checked = !!s.priceNextTen;
+    $tendigit.value = clampDigit(s.priceNextTenDigit);
+    $tenmin.value = clampMin(s.priceNextTenMin);
     $logsamples.checked = !!s.logSamples;
     $sharedata.checked = !!s.shareData;
     updateNudge();
@@ -367,6 +404,11 @@
   $sep.addEventListener("change", save);
   $cents.addEventListener("change", save);
   $cents.addEventListener("input", renderExample);
+  $nextten.addEventListener("change", save);
+  $tendigit.addEventListener("change", save);
+  $tendigit.addEventListener("input", renderExample);
+  $tenmin.addEventListener("change", save);
+  $tenmin.addEventListener("input", renderExample);
 
   // ---- Training data: counts, export, clear ----
   const $counts = document.getElementById("counts");

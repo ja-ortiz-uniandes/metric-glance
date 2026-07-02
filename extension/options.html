@@ -117,6 +117,27 @@
     <span style="white-space:nowrap"><input type="number" id="cents" min="1" max="99" step="1" /> ¢</span>
   </div>
 
+  <div class="row">
+    <label for="nextten">Round to the next ten
+      <span class="sub">A whole price ending in the digit below rounds up: $19 becomes $20, $9 becomes $10.</span>
+    </label>
+    <input type="checkbox" id="nextten" />
+  </div>
+
+  <div class="row">
+    <label for="tendigit">When the last digit is
+      <span class="sub" title="Digit (1–9): whole prices ending in this digit round up to the next ten.">9 targets charm prices like $19 and $199.</span>
+    </label>
+    <input type="number" id="tendigit" min="1" max="9" step="1" />
+  </div>
+
+  <div class="row">
+    <label for="tenmin">Only for prices of at least
+      <span class="sub" title="Next-ten rounding applies only at or above this value, compared against the whole number shown ($18.99 counts as $19).">Below this, prices keep their last digit ($9 stays $9 at 19).</span>
+    </label>
+    <input type="number" id="tenmin" min="0" step="1" />
+  </div>
+
   <div class="example" id="example"></div>
   <div id="status"></div>
 

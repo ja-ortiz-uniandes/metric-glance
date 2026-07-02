@@ -153,3 +153,19 @@ Adds a new "Flow" category so common US/imperial flow-rate units are now detecte
 These are matched ahead of the plain "gallons" and "cubic feet" volume units, so "5 gallons per minute" reads as a flow rate rather than a bare volume. As with other ambiguous units, hovering a GPM/GPH value lets you switch between the US and imperial reading.
 
 No change to what data is collected or how it is shared.
+
+## v0.47.0
+
+### Charm prices round to the next ten
+
+Whole prices ending in 9 now round up to the next multiple of 10, so $19 shows as $20 and $199 as $200. The rule runs after the existing cents rounding and looks at the value that would actually be displayed: $18.99 first rounds to $19 by the cents rule, which still ends in 9, so it shows as $20. The exact original price stays one hover or tap away, as always.
+
+Three new controls in Preferences, under Price rounding (the live example line reflects all of them):
+
+- **Round to the next ten** turns the rule on or off. On by default.
+- **When the last digit is** picks the digit that triggers it (1 to 9, default 9).
+- **Only for prices of at least** sets a minimum, default $19, below which prices keep their last digit, so small prices like $9 are left alone. The minimum is compared against the displayed whole value ($18.99 counts as $19). Set it to 0 to round small prices too.
+
+Also fixed: the unit picker's "Treat as price" row now previews the true rounded value instead of always assuming the next whole dollar.
+
+No change to what data is collected or how it is shared.

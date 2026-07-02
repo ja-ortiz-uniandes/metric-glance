@@ -37,6 +37,13 @@
     // Max cents a price may be nudged UP to reach the next whole unit.
     // 1..99. e.g. 5 rounds $1.99 and $1.95 up to the next dollar, but not $1.50.
     priceRoundCents: 60,
+    // Round a whole price whose last digit is priceNextTenDigit up to the
+    // next multiple of 10: $19 -> $20, $199 -> $200. Runs after the cents
+    // rounding above, so $18.99 -> $19 -> $20. Skipped when the whole value
+    // being displayed is below priceNextTenMin (so $9 stays by default).
+    priceNextTen: true,
+    priceNextTenDigit: 9, // 1..9
+    priceNextTenMin: 19,  // leave small prices alone below this
     // When on, log a small random sample of the conversions the detector got
     // right (not just corrections), so the eventual training set is balanced.
     logSamples: false,
@@ -1181,16 +1188,32 @@
 
   // Round a price UP to the next whole unit, but only when it is within the
   // configured cents threshold of that whole unit (or the user forced it).
+  // Then apply the next-ten rule: a whole price (or the whole result of the
+  // cents rounding) whose last digit is priceNextTenDigit rounds up to the
+  // next multiple of 10, so $19 -> $20 and $18.99 -> $19 -> $20. The rule is
+  // skipped below priceNextTenMin, compared against the whole value that
+  // would be displayed (so $18.99 counts as 19).
   // Returns the rounded integer value, or null if it should be left alone.
   // Examples (threshold 5): 1.99 -> 2, 1.95 -> 2, 1.50 -> null, 2.01 -> null.
-  // At threshold 99: 2.01 -> 3. Whole-unit prices (no cents) -> null.
+  // At threshold 99: 2.01 -> 3. Whole-unit prices (no cents) -> null unless
+  // the next-ten rule applies.
   function roundedPriceValue(value, forced) {
     const whole = Math.floor(value);
     const fracCents = Math.round((value - whole) * 100); // 0..99
-    if (fracCents === 0) return null; // already whole, nothing to round
-    const gapCents = 100 - fracCents; // cents needed to reach the next whole
-    if (!forced && gapCents > settings.priceRoundCents) return null;
-    return whole + 1;
+    let next = null;
+    if (fracCents !== 0) {
+      const gapCents = 100 - fracCents; // cents needed to reach the next whole
+      if (!forced && gapCents > settings.priceRoundCents) return null;
+      next = whole + 1;
+    }
+    const base = next === null ? whole : next;
+    const digit = Number(settings.priceNextTenDigit);
+    const min = Number(settings.priceNextTenMin);
+    if (settings.priceNextTen && digit >= 1 && digit <= 9 && base > 0 &&
+        base % 10 === digit && base >= (isFinite(min) ? min : 0)) {
+      return base + (10 - digit);
+    }
+    return next;
   }
 
   // ---------------------------------------------------------------
@@ -3042,7 +3065,8 @@
       const tag = document.createElement("span");
       tag.className = "mg-pk-cat";
       const cents = Math.round((priceInfo.value - Math.floor(priceInfo.value)) * 100);
-      const willRound = roundedPriceValue(priceInfo.value, false) !== null;
+      const roundedTo = roundedPriceValue(priceInfo.value, false);
+      const willRound = roundedTo !== null;
       tag.textContent = willRound
         ? "rounds up"
         : (cents === 0 ? "already whole" : "not rounded (gap over " + settings.priceRoundCents + "\u00A2)");
@@ -3053,7 +3077,7 @@
       const sym = priceInfo.symbol.replace(/\s+$/, "");
       const from = sym + priceInfo.value.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 });
       right.textContent = willRound
-        ? from + " \u2192 " + sym + (Math.floor(priceInfo.value) + 1).toLocaleString("en-US")
+        ? from + " \u2192 " + sym + roundedTo.toLocaleString("en-US")
         : from;
       row.appendChild(left);
       row.appendChild(right);
