@@ -1,9 +1,9 @@
-name: Bimonthly maintenance
+name: Scheduled maintenance
 
-# Keeps the add-on looking maintained without manual effort. Every two months
-# this: refreshes the repo's dependency tooling (collect/ npm, train/ uv), each
-# update at least a week old for supply-chain safety; bumps the extension patch
-# version; writes a CHANGELOG section; commits to main; and pushes a v-tag.
+# Keeps the add-on looking maintained without manual effort. Roughly every six
+# weeks this: refreshes the repo's dependency tooling (collect/ npm, train/ uv),
+# each update at least a week old for supply-chain safety; bumps the extension
+# patch version; writes a CHANGELOG section; commits to main; and pushes a v-tag.
 #
 # The pushed tag is what triggers release.yml, which lints, submits to AMO
 # (listed), and cuts the GitHub release. So this workflow performs a REAL public
@@ -19,13 +19,15 @@ name: Bimonthly maintenance
 
 on:
   schedule:
-    # 06:00 UTC on the 1st of Jan, Mar, May, Jul, Sep, Nov (every other month).
-    # NOTE: GitHub auto-disables a scheduled workflow after 60 days of no repo
-    # activity, and some of these gaps run to 61-62 days. GitHub emails the repo
-    # admin first and offers a one-click re-enable; any manual commit in between
-    # also resets the timer. If you want it fully hands-off, switch to a monthly
-    # cron ("0 6 1 * *") so runs stay under 60 days apart.
-    - cron: "0 6 1 */2 *"
+    # Every ~1.5 months (8 evenly spaced runs a year, ~45 days apart), at 06:00
+    # UTC. Cron cannot express "every 45 days", so two entries alternate the 1st
+    # and the 15th to hit: Jan 1, Feb 15, Apr 1, May 15, Jul 1, Aug 15, Oct 1,
+    # Nov 15. Every gap is 44-47 days, comfortably under GitHub's 60-day
+    # scheduled-workflow auto-disable window, so the schedule stays enabled on
+    # its own. (GitHub still emails the admin before ever disabling a schedule,
+    # with a one-click re-enable, and any manual commit resets the timer.)
+    - cron: "0 6 1 1,4,7,10 *"
+    - cron: "0 6 15 2,5,8,11 *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -90,7 +92,7 @@ jobs:
           git config user.name "metric-glance-bot"
           git config user.email "metric.glance@proton.me"
           git add -A
-          git commit -m "chore: bimonthly maintenance (deps + v$version)"
+          git commit -m "chore: scheduled maintenance (deps + v$version)"
           git tag "v$version"
           git push origin HEAD:main
           git push origin "v$version"
