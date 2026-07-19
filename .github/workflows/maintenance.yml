@@ -1,0 +1,100 @@
+name: Bimonthly maintenance
+
+# Keeps the add-on looking maintained without manual effort. Every two months
+# this: refreshes the repo's dependency tooling (collect/ npm, train/ uv), each
+# update at least a week old for supply-chain safety; bumps the extension patch
+# version; writes a CHANGELOG section; commits to main; and pushes a v-tag.
+#
+# The pushed tag is what triggers release.yml, which lints, submits to AMO
+# (listed), and cuts the GitHub release. So this workflow performs a REAL public
+# release every run. This is a deliberate, owner-approved exception to the
+# "never auto-tag" rule in CLAUDE.md; see the "Releasing" section there.
+#
+# REQUIRED SECRET: RELEASE_PAT
+#   A Personal Access Token with Contents: read and write on this repo. The tag
+#   MUST be pushed with a PAT, not the default GITHUB_TOKEN: GitHub does not fire
+#   one workflow (release.yml) from a tag pushed by GITHUB_TOKEN, so without the
+#   PAT the release would never run. The AMO secrets (AMO_JWT_ISSUER /
+#   AMO_JWT_SECRET) are consumed by release.yml and are not needed here.
+
+on:
+  schedule:
+    # 06:00 UTC on the 1st of Jan, Mar, May, Jul, Sep, Nov (every other month).
+    # NOTE: GitHub auto-disables a scheduled workflow after 60 days of no repo
+    # activity, and some of these gaps run to 61-62 days. GitHub emails the repo
+    # admin first and offers a one-click re-enable; any manual commit in between
+    # also resets the timer. If you want it fully hands-off, switch to a monthly
+    # cron ("0 6 1 * *") so runs stay under 60 days apart.
+    - cron: "0 6 1 */2 *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: update + bump locally but do NOT commit, tag, or release."
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (PAT so the pushed tag triggers release.yml)
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Compute the one-week-ago cutoff
+        id: cutoff
+        run: echo "date=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Update npm deps (collect/) to versions at least a week old
+        env:
+          MIN_AGE_CUTOFF: ${{ steps.cutoff.outputs.date }}
+        run: node .github/scripts/update-npm-min-age.mjs collect
+
+      - name: Update Python deps (train/) to versions at least a week old
+        working-directory: train
+        run: uv lock --upgrade --exclude-newer "${{ steps.cutoff.outputs.date }}"
+
+      - name: Bump patch version and write CHANGELOG section
+        id: bump
+        run: |
+          version=$(node .github/scripts/bump-and-changelog.mjs)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "New version: v$version"
+
+      - name: Lint the extension (gate: never release a broken build)
+        run: npx --yes web-ext lint --source-dir extension
+
+      - name: Show the pending diff
+        run: git --no-pager diff --stat
+
+      - name: Commit, tag, and push (triggers the AMO release)
+        if: ${{ github.event_name == 'schedule' || github.event.inputs.dry_run == 'false' }}
+        run: |
+          version="${{ steps.bump.outputs.version }}"
+          git config user.name "metric-glance-bot"
+          git config user.email "metric.glance@proton.me"
+          git add -A
+          git commit -m "chore: bimonthly maintenance (deps + v$version)"
+          git tag "v$version"
+          git push origin HEAD:main
+          git push origin "v$version"
+
+      - name: Dry run summary
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'false' }}
+        run: echo "Dry run: nothing committed, tagged, or released. Re-run with dry_run=false to release v${{ steps.bump.outputs.version }}."
