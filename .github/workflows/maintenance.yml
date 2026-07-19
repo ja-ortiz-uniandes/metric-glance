@@ -77,14 +77,14 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "New version: v$version"
 
-      - name: Lint the extension (gate: never release a broken build)
+      - name: Lint the extension (never release a broken build)
         run: npx --yes web-ext lint --source-dir extension
 
       - name: Show the pending diff
         run: git --no-pager diff --stat
 
       - name: Commit, tag, and push (triggers the AMO release)
-        if: ${{ github.event_name == 'schedule' || github.event.inputs.dry_run == 'false' }}
+        if: "${{ github.event_name == 'schedule' || github.event.inputs.dry_run == 'false' }}"
         run: |
           version="${{ steps.bump.outputs.version }}"
           git config user.name "metric-glance-bot"
@@ -96,5 +96,6 @@ jobs:
           git push origin "v$version"
 
       - name: Dry run summary
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'false' }}
-        run: echo "Dry run: nothing committed, tagged, or released. Re-run with dry_run=false to release v${{ steps.bump.outputs.version }}."
+        if: "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'false' }}"
+        run: |
+          echo "Dry run complete: nothing committed, tagged, or released. Re-run with dry_run=false to release v${{ steps.bump.outputs.version }}."
