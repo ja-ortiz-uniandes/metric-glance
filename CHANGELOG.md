@@ -179,3 +179,13 @@ development tooling (the collect/ backend and train/ pipeline) was refreshed
 to recent dependency versions, each at least a week old, and the extension
 version was bumped. The extension's behavior is unchanged, and there is no
 change to what data is collected or how it is shared.
+
+## v0.47.2
+
+### Maintenance
+
+Routine upkeep release to keep the add-on current on its listing. The
+development tooling (the collect/ backend and train/ pipeline) was refreshed
+to recent dependency versions, each at least a week old, and the extension
+version was bumped. The extension's behavior is unchanged, and there is no
+change to what data is collected or how it is shared.
