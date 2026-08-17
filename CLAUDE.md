@@ -249,6 +249,7 @@ When enough labeled data exists (hundreds to low thousands of corrected examples
 - **`window.close()` does not work** for tabs opened via `tabs.create`. Use `tabs.query({ active: true, currentWindow: true })` + `tabs.remove()` instead, or just show a "you can close this" message.
 - The `collect/` directory has its own `.gitignore` that re-includes `package.json` and `package-lock.json` (the root `.gitignore` would otherwise exclude them).
 - LF->CRLF git warnings on Windows are harmless; do not add `.gitattributes` to suppress them without checking the team's preference first.
+- **When pinning or bumping a GitHub Action version (`uses: owner/action@vX`), verify that exact tag exists in the action's own repo first** (e.g. `gh api repos/<owner>/<action>/tags`). Do not assume it follows the same rolling bare-major-tag convention as `actions/checkout`/`actions/setup-node` (both really do publish a floating `v7`). Some actions only ever tag full semver releases, no bare-major tag at all, and pinning to a guessed one fails the job instantly at run time, not at edit time. This is exactly how `astral-sh/setup-uv@v8` broke the 2026-08-15 scheduled maintenance run: `v8` was never a real tag for that action.
 
 ## CodeGraph
 
