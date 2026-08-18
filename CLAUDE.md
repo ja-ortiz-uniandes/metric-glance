@@ -13,6 +13,7 @@ The extension also ships an off-device data pipeline: it logs labeled training e
 - Current version: `0.46.1`
 - Contact: `metric.glance@proton.me`
 - No build step. Plain JavaScript throughout.
+- Outstanding work lives in `TODO.md` at repo root (encrypted with git-age; repo is public).
 
 ---
 
