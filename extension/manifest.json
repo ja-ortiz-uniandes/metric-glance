@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Metric Glance",
-  "version": "0.47.2",
+  "version": "0.47.3",
   "description": "Converts imperial units to metric and rounds large prices. Hover (desktop) or tap (mobile) the dotted text to see the original or correct it. Right-click a selection to teach it new conversions.",
   "permissions": [
     "storage",
@@ -15,7 +15,7 @@
   "commands": {
     "open-picker": {
       "suggested_key": { "default": "Ctrl+Alt+M", "mac": "Command+Alt+M" },
-      "description": "Open the Metric Glance unit picker for the current selection"
+      "description": "Smart Picker: open the unit picker for the current selection, or mark a missed unit if nothing is selected"
     }
   },
   "browser_action": {

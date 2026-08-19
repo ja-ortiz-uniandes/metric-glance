@@ -535,7 +535,7 @@
       { id: "usfloz", label: "US fluid ounce (→ ml)", toMetric: (v) => v * 29.5735, fmt: (v) => formatVolumeMl(v), rate: "1 US fl oz = 29.57 ml", surfaces: /^(?!.*imp)/i },
       { id: "impfloz", label: "Imperial fluid ounce (→ ml)", toMetric: (v) => v * 28.4131, fmt: (v) => formatVolumeMl(v), rate: "1 imp fl oz = 28.41 ml", surfaces: /^(?!.*u\.?s)/i },
     ] },
-    { name: "miles", pattern: "(?:miles?|mi\\.)", variants: [
+    { name: "miles", pattern: "(?:miles?|mi\\.?)", variants: [
       { id: "mi", label: "Distance (miles → km)", toMetric: (v) => v * 1.609344, fmt: (v) => fmtScale("Length", v*1000), rate: "1 mile = 1.609 km" },
     ] },
     { name: "yards", pattern: "(?:yards?|yds?\\.?)", variants: [
@@ -2690,6 +2690,7 @@
         // (its original value); otherwise use the current text selection.
         if (panel && panelSpan) openPickerForSpan(panelSpan);
         else if (range) openPicker(range);
+        else enterPickMode();
         return;
       }
       if (msg.type === "mg-pick-mode") { enterPickMode(); return; }
@@ -3237,7 +3238,7 @@
     setCrosshair(true);
     renderPickStage1();
     document.addEventListener("mousemove", onPickMove, true);
-    document.addEventListener("click", onPickClick, true);
+    document.addEventListener("mousedown", onPickClick, true);
     document.addEventListener("keydown", onPickKey, true);
     document.addEventListener("scroll", hideBox, true);
   }
@@ -3246,7 +3247,7 @@
     pickOn = false;
     pickStage = 0;
     document.removeEventListener("mousemove", onPickMove, true);
-    document.removeEventListener("click", onPickClick, true);
+    document.removeEventListener("mousedown", onPickClick, true);
     document.removeEventListener("keydown", onPickKey, true);
     document.removeEventListener("scroll", hideBox, true);
     setCrosshair(false);
@@ -3261,6 +3262,10 @@
     const t = pickTargetAt(e.clientX, e.clientY);
     if (t) positionBox(t.getBoundingClientRect()); else hideBox();
   }
+  // Bound to mousedown, not click: disabled form controls (buttons, etc.)
+  // never dispatch a click event, which silently broke picking on text
+  // inside them (e.g. a distance badge in a disabled "select office" button).
+  // mousedown still fires for disabled elements, so it works everywhere click did.
   function onPickClick(e) {
     if (!pickOn) return;
     // Let clicks on our own bar/buttons behave normally.

@@ -86,6 +86,20 @@
     }
     .actionbtn:hover { background: #e9ebf0; }
     .actionbtn.danger { color: #b42318; border-color: #e0b4ae; }
+    .infoicon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #e7e9ee;
+      color: #5a6172;
+      font-size: 12px;
+      font-style: normal;
+      cursor: help;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -100,7 +114,21 @@
     <span>Data collection is not fully enabled. Your corrections may not be used to improve detection.</span>
     <button id="nudge-on" class="actionbtn" style="white-space:nowrap; flex-shrink:0; font-size:13px; padding:6px 10px;">Turn on</button>
   </div>
-  <h1>Price rounding</h1>
+  <h1>Smart Picker</h1>
+  <p class="hint">One shortcut, two jobs: with text selected it opens the unit picker for that selection; with nothing selected it lets you mark a unit the converter missed.</p>
+  <div class="row" style="border-bottom:none">
+    <label>Keyboard shortcut
+      <span class="sub" id="smartpicker-shortcut">Loading…</span>
+    </label>
+    <span class="infoicon" tabindex="0" id="smartpicker-info" title="Select text, then use this shortcut to open the unit picker for it. With nothing selected, the same shortcut marks a unit the converter missed on the page.">&#9432;</span>
+  </div>
+  <div class="row" style="border-bottom:none; gap:8px">
+    <button id="sp-rebind" class="actionbtn">Change shortcut</button>
+    <button id="sp-reset" class="actionbtn">Reset to default</button>
+  </div>
+  <div id="sp-status" class="hint" style="min-height:16px"></div>
+
+  <h1 style="margin-top:22px">Price rounding</h1>
   <p class="hint">Rounds prices near a whole number up. Hover or tap the dotted value to see the exact price.</p>
 
   <div class="row">

@@ -11,7 +11,7 @@
       color: #1f2430;
       background: #ffffff;
       margin: 0;
-      width: 248px;
+      width: 272px;
     }
     .site {
       padding: 10px 14px 8px;
@@ -63,7 +63,7 @@
       .item:hover, .item:focus-visible { background: #383c46; }
     }
     /* Mobile (Firefox Android): the popup fills the screen instead of being a
-     * small panel. The desktop popup viewport is only 248px wide, so anything
+     * small panel. The desktop popup viewport is only 272px wide, so anything
      * wider is the full-screen mobile case. Scale up width, fonts, and touch
      * targets so the menu is comfortably tappable. */
     @media (min-width: 300px) {
@@ -88,12 +88,15 @@
   <div class="menu">
     <button class="item" id="toggle">
       <span class="ico" id="toggle-ico">🚫</span>
-      <span class="txt" id="toggle-txt">Don't run on this site</span>
+      <span class="txt">
+        <span id="toggle-txt">Don't run on this site</span>
+        <span class="sub" id="toggle-sub">Stops converting units and prices here</span>
+      </span>
     </button>
     <button class="item" id="pick">
       <span class="ico">🎯</span>
       <span class="txt">Mark a missed unit
-        <span class="sub">Point at text the converter skipped</span>
+        <span class="sub">Point at text the converter skipped<span id="pick-shortcut"></span></span>
       </span>
     </button>
     <button class="item" id="settings">

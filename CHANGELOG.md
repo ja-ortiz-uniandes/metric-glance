@@ -189,3 +189,36 @@ development tooling (the collect/ backend and train/ pipeline) was refreshed
 to recent dependency versions, each at least a week old, and the extension
 version was bumped. The extension's behavior is unchanged, and there is no
 change to what data is collected or how it is shared.
+
+## v0.47.3
+
+### Smart Picker
+
+The `open-picker` keyboard shortcut now does two jobs depending on whether
+you have text selected: with a selection, it opens the unit picker for it
+(as before); with nothing selected, it now falls into "mark a missed unit"
+mode instead of doing nothing. This dual behavior is named "Smart Picker"
+throughout the UI.
+
+- The extension's Preferences page has a new "Smart Picker" section (first
+  in the list) explaining the behavior, with an info icon, and showing the
+  live keyboard shortcut.
+- You can rebind the shortcut directly from Preferences ("Change shortcut",
+  captures the next key combination you press) or reset it to the default
+  (`Ctrl+Alt+M` / `Cmd+Alt+M` on Mac), without leaving the extension.
+- The toolbar popup menu now explains what each option does ("Don't run on
+  this site", "Mark a missed unit") and shows the current shortcut next to
+  "Mark a missed unit".
+
+### Fixes
+
+- Distances and other values written with a bare `mi` (no period, e.g.
+  "5 mi") were not recognized as miles; only `mile`, `miles`, or `mi.` were.
+  Fixed to match `ft`/`yd`'s existing bare-abbreviation handling.
+- Picking a missed unit inside a disabled control (e.g. a disabled `<button>`
+  on a page, common in "select one of these options" UIs) silently did
+  nothing, because disabled form controls never dispatch a `click` event.
+  Pick mode now listens on `mousedown` instead, which still fires on
+  disabled elements.
+
+**Full Changelog**: https://github.com/ja-ortiz-uniandes/metric-glance/compare/v0.47.1...v0.47.3

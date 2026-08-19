@@ -1,5 +1,6 @@
-/* Metric Glance toolbar popup: open settings, or toggle this site on/off the
- * list of sites where the add-on does not run. */
+/* Metric Glance toolbar popup: open settings, toggle this site on/off the
+ * list of sites where the add-on does not run, or enter mark-a-missed-unit
+ * mode. */
 (function () {
   "use strict";
 
@@ -12,7 +13,9 @@
   const $toggle = document.getElementById("toggle");
   const $toggleTxt = document.getElementById("toggle-txt");
   const $toggleIco = document.getElementById("toggle-ico");
+  const $toggleSub = document.getElementById("toggle-sub");
   const $pick = document.getElementById("pick");
+  const $pickShortcut = document.getElementById("pick-shortcut");
   const $settings = document.getElementById("settings");
 
   function normHost(h) { return String(h || "").trim().toLowerCase().replace(/\.$/, ""); }
@@ -45,11 +48,13 @@
       $state.className = "state off";
       $toggleTxt.textContent = "Run on this site again";
       $toggleIco.textContent = "✅";
+      $toggleSub.textContent = "Resumes converting units and prices here";
     } else {
       $state.textContent = "Running on this site";
       $state.className = "state";
       $toggleTxt.textContent = "Don't run on this site";
       $toggleIco.textContent = "🚫";
+      $toggleSub.textContent = "Stops converting units and prices here";
     }
   }
 
@@ -85,4 +90,13 @@
     host = tab ? hostOf(tab.url) : "";
     getDisabled().then((list) => render(list.some((h) => normHost(h) === host)));
   }, () => render(false));
+
+  // Show the live "open-picker" shortcut binding (can differ from the
+  // manifest default once the user rebinds it in Manage Extension Shortcuts).
+  if (api.commands && api.commands.getAll) {
+    api.commands.getAll().then((cmds) => {
+      const c = (cmds || []).find((x) => x.name === "open-picker");
+      if (c && c.shortcut) $pickShortcut.textContent = " (" + c.shortcut + ")";
+    }, () => {});
+  }
 })();

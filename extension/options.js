@@ -84,6 +84,107 @@
   const $sep = document.getElementById("sep");
   const $tiers = document.getElementById("tiers");
   const $advbody = document.getElementById("advbody");
+  const $spShortcut = document.getElementById("smartpicker-shortcut");
+  const $spInfo = document.getElementById("smartpicker-info");
+  const $spRebind = document.getElementById("sp-rebind");
+  const $spReset = document.getElementById("sp-reset");
+  const $spStatus = document.getElementById("sp-status");
+
+  // Rebind the "open-picker" command's shortcut (Firefox 60+: commands.update
+  // / commands.reset). Recording captures the next real key combo pressed
+  // while $spRebind is in "listening" mode, rather than asking the user to
+  // type a shortcut string by hand.
+  const PICKER_CMD = "open-picker";
+  const isMac = /Mac/.test(navigator.platform || "");
+  let recording = false;
+
+  function mapKeyName(e) {
+    const code = e.code || "";
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+    if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+    if (/^F([1-9]|1[0-2])$/.test(code)) return code;
+    const named = {
+      ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
+      Space: "Space", Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown",
+      Insert: "Insert", Delete: "Delete", Comma: "Comma", Period: "Period",
+    };
+    return named[code] || null;
+  }
+
+  function refreshShortcutDisplay() {
+    if (!(api.commands && api.commands.getAll)) { $spShortcut.textContent = ""; return; }
+    api.commands.getAll().then((cmds) => {
+      const c = (cmds || []).find((x) => x.name === PICKER_CMD);
+      const sc = c && c.shortcut;
+      $spShortcut.textContent = sc ? "Currently bound to " + sc : "No shortcut set";
+      $spInfo.title = sc
+        ? "Select text, then press " + sc + " to open the unit picker for it. With nothing selected, " + sc + " marks a unit the converter missed on the page."
+        : "Select text, then use this shortcut to open the unit picker for it. With nothing selected, the same shortcut marks a unit the converter missed on the page.";
+    }, () => { $spShortcut.textContent = ""; });
+  }
+
+  function onRecordKeydown(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Escape") { stopRecording(""); return; }
+    const key = mapKeyName(e);
+    if (!key) return; // still waiting on a real key (ignore bare modifier presses)
+    const mods = [];
+    if (isMac) {
+      if (e.metaKey) mods.push("Command");
+      else if (e.ctrlKey) mods.push("MacCtrl");
+      if (e.altKey) mods.push("Alt");
+      if (e.shiftKey) mods.push("Shift");
+    } else {
+      if (e.ctrlKey) mods.push("Ctrl");
+      if (e.altKey) mods.push("Alt");
+      if (e.shiftKey) mods.push("Shift");
+    }
+    if (!mods.length) {
+      $spStatus.textContent = "Include " + (isMac ? "Cmd or Ctrl" : "Ctrl or Alt") + " in the combination.";
+      return;
+    }
+    const shortcut = mods.concat(key).join("+");
+    stopRecording(shortcut);
+  }
+
+  function startRecording() {
+    if (recording) return;
+    recording = true;
+    $spShortcut.textContent = "Press a key combination… (Esc to cancel)";
+    $spStatus.textContent = "";
+    $spRebind.textContent = "Listening…";
+    document.addEventListener("keydown", onRecordKeydown, true);
+  }
+
+  function stopRecording(shortcut) {
+    recording = false;
+    document.removeEventListener("keydown", onRecordKeydown, true);
+    $spRebind.textContent = "Change shortcut";
+    if (!shortcut) { refreshShortcutDisplay(); return; }
+    api.commands.update({ name: PICKER_CMD, shortcut: shortcut }).then(
+      () => { $spStatus.textContent = "Shortcut updated."; refreshShortcutDisplay(); },
+      (e) => { $spStatus.textContent = "Couldn't use that combination: " + (e && e.message ? e.message : "invalid shortcut") + "."; refreshShortcutDisplay(); }
+    );
+  }
+
+  if (api.commands && api.commands.update) {
+    $spRebind.addEventListener("click", startRecording);
+  } else {
+    $spRebind.disabled = true;
+  }
+  if (api.commands && api.commands.reset) {
+    $spReset.addEventListener("click", () => {
+      api.commands.reset(PICKER_CMD).then(
+        () => { $spStatus.textContent = "Reset to default."; refreshShortcutDisplay(); },
+        () => { $spStatus.textContent = "Couldn't reset the shortcut."; }
+      );
+    });
+  } else {
+    $spReset.disabled = true;
+  }
+
+  refreshShortcutDisplay();
 
   function updateNudge() {
     $nudge.style.display = ($sharedata.checked && $logsamples.checked) ? "none" : "flex";
