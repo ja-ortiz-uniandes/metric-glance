@@ -222,3 +222,31 @@ throughout the UI.
   disabled elements.
 
 **Full Changelog**: https://github.com/ja-ortiz-uniandes/metric-glance/compare/v0.47.1...v0.47.3
+
+## v0.47.4
+
+A batch of correctness fixes from a targeted bug hunt across the detection engine, the price/unit correction flows, and the training-data logging, plus manual verification that turned up a couple more.
+
+### Detection
+
+- A dimension list like "5 x 3 in" could match starting mid-word (e.g. inside "Gen5") because its regex, unlike the main unit regex, had no word-boundary guard, and it didn't understand comma-grouped thousands, so "1,500 x 2 in" was matched as "500 x 2 in" with the "1," silently dropped.
+- A decimal number immediately followed by an unrelated number (e.g. "5.5 12 oz") was parsed as a single corrupted value (5.512) instead of leaving the unrelated number alone.
+- "oz"/"ounce" is genuinely ambiguous between weight and US/imperial fluid ounces (a "tumbler holds 12 oz" is clearly volume), but the hover panel's alternate-unit suggestions for it only ever offered ounce vs. troy ounce, never the fluid readings. They're now offered together.
+
+### Corrections and training data
+
+- The unit picker's "Treat as price" option, which is supposed to respect the rounding-gap threshold and leave a price alone when the gap is too large, always rounded to a whole number regardless, dropping the cents even when its own preview said it wouldn't.
+- Picking an alternate unit or interpretation for a value the detector already got right (its first hand correction) wasn't registered for later retraction, so marking that same value "not a conversion" afterward logged a contradictory negative example instead of taking back the earlier one.
+- Occurrences with a persisted forced unit or price (from an earlier correction) could be re-logged as fresh, unlabeled "auto" examples on later page loads, mislabeling a confirmed correction as an unreviewed guess.
+- Several actions that capture the surrounding page text for a training example (convert-as, mark-incorrect, treat-as-price, seen-tier logging) could pick up the extension's own still-open toolbar, panel, or picker text if it happened to be a DOM sibling at that moment, polluting the logged context with UI copy instead of page content.
+- Deleting uploaded records and appending a new local correction could race across the background uploader and a content script: if both landed back to back, one write could silently overwrite the other. Both sides now bump a revision counter and retry if a conflicting write is detected, instead of blindly overwriting.
+
+### Other
+
+- Smart Picker's phrase-picking click handler listened on `mousedown` (needed so it also works on disabled controls) but only canceled that event, so a link or button under the pointer still followed through on the subsequent `click` and navigated away or activated before the picker UI could be used. It now also cancels the paired `click`.
+- The toolbar badge showing whether the extension is off for the current site wasn't refreshed when the background page reloaded (extension update, browser restart) unless the tab was later switched or navigated.
+- The Smart Picker shortcut recorder in Preferences accepted a bare Shift-only combination even though Firefox requires Ctrl or Alt (or Cmd/Ctrl on Mac), surfacing a raw browser error instead of the intended "Include Ctrl or Alt" message.
+
+No change to what data is collected or how it is shared.
+
+**Full Changelog**: https://github.com/ja-ortiz-uniandes/metric-glance/compare/v0.47.3...v0.47.4

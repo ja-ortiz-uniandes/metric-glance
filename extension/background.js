@@ -169,6 +169,9 @@
         if (area === "local" && changes.disabledHosts) refreshActiveBadge();
       });
     }
+    // Also sync on script load/wake (e.g. extension update, browser restart
+    // with the same tab still active), not just on later tab/storage events.
+    refreshActiveBadge();
   }
 
   // The customizable keyboard command opens the picker in the active tab.

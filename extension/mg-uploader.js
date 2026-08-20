@@ -21,9 +21,11 @@
  *     mgTraining fresh and removes the uploaded keys as a set difference, never
  *     writing back a stale snapshot. Records the content script appended during
  *     the upload survive.
- *   - The only residual window is a content-script flush landing between our
- *     fresh re-read and our set(); it's tiny, and the server's UNIQUE dedup_key
- *     makes the rare re-send idempotent. Proportionate to a training set.
+ *   - A content-script flush can still land between our read and our set();
+ *     rather than relying on that window being "small enough", both sides
+ *     bump a `rev` counter on every write and re-read to confirm their write
+ *     stuck. On a mismatch (someone else committed in between) we retry
+ *     against the fresher state instead of silently overwriting it.
  *
  * Contract with worker.js:
  *   POST JSON { install_id, records: [...] }
@@ -190,25 +192,41 @@
   }
 
   // Remove confirmed keys from a FRESH read of mgTraining (set difference), so
-  // anything appended during the upload is preserved.
+  // anything appended during the upload is preserved. converter.js's flushLog
+  // can append to this same key from a content-script context at any time, so
+  // a plain read-then-write here could still silently clobber a concurrent
+  // append if it lands between our read and our write. `rev` (bumped on every
+  // write by both sides) lets us detect that after the fact: if the value we
+  // just wrote isn't what comes back, someone else committed in between, and
+  // we retry against their fresher state instead of leaving that write lost.
   async function deleteConfirmed(keys) {
     const { mgTraining } = await getLocal({ mgTraining: {} });
-    let store = mgTraining;
-    if (Array.isArray(store)) {
-      // Legacy flat array: rebuild filtered, keep flat.
-      const next = store.filter((r) => !keys.has(recKey(r)));
+    if (Array.isArray(mgTraining)) {
+      // Legacy flat array: rebuild filtered, keep flat. One-time migration
+      // path (converter.js upgrades it to the tiered format on its own next
+      // write), not worth the CAS machinery below.
+      const next = mgTraining.filter((r) => !keys.has(recKey(r)));
       await setLocal({ mgTraining: next });
       return;
     }
-    if (!store || typeof store !== "object") store = {};
-    const prune = (arr) => (arr || []).filter((r) => !keys.has(recKey(r)));
-    await setLocal({
-      mgTraining: {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { mgTraining: fresh } = attempt === 0
+        ? { mgTraining }
+        : await getLocal({ mgTraining: {} });
+      let store = fresh;
+      if (!store || typeof store !== "object") store = {};
+      const rev = store.rev || 0;
+      const prune = (arr) => (arr || []).filter((r) => !keys.has(recKey(r)));
+      const next = {
         corrected: prune(store.corrected),
         seen: prune(store.seen),
         auto: prune(store.auto),
-      },
-    });
+        rev: rev + 1,
+      };
+      await setLocal({ mgTraining: next });
+      const check = await getLocal({ mgTraining: {} });
+      if (check.mgTraining && check.mgTraining.rev === next.rev) return;
+    }
   }
 
   // --- one upload cycle ---------------------------------------------------

@@ -23,6 +23,20 @@
   const UI_ATTR = "data-mg-ui";
   let currentShortcut = ""; // live value of the open-picker command, from background
 
+  // Text captured for a training example's surrounding context must never
+  // include our own injected UI (toolbar, panel, picker): several actions
+  // (e.g. the picker's "Treat as price" row) read an ancestor's textContent
+  // while that overlay is still mounted as a sibling in the page, which would
+  // otherwise splice the overlay's own copy into the logged context.
+  function contextTextOf(el) {
+    if (!el) return "";
+    const clone = el.cloneNode(true);
+    if (clone.querySelectorAll) {
+      clone.querySelectorAll("[" + UI_ATTR + "]").forEach((n) => n.remove());
+    }
+    return clone.textContent || "";
+  }
+
   const api =
     (typeof browser !== "undefined" && browser) ||
     (typeof chrome !== "undefined" && chrome) ||
@@ -345,21 +359,43 @@
     return store;
   }
 
+  // Optimistic-concurrency write: mg-uploader.js (a separate background
+  // context) also reads-modifies-writes this same key when deleting uploaded
+  // records, so a plain get-then-set here could silently clobber a deletion
+  // (or vice versa) if the two land back to back. `rev` is bumped on every
+  // write and re-checked immediately after; a mismatch means someone else
+  // committed in between, so we retry against the now-current state instead
+  // of overwriting it. `mutate` returns the next store, or a falsy value to
+  // abort without writing.
+  async function writeTrainingCAS(mutate) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let res;
+      try { res = await storage.get({ mgTraining: {} }); } catch (e) { return; }
+      const store = migrateTraining(res.mgTraining);
+      const rev = store.rev || 0;
+      const next = mutate(store);
+      if (!next) return;
+      next.rev = rev + 1;
+      try { await storage.set({ mgTraining: next }); } catch (e) { return; }
+      let check;
+      try { check = await storage.get({ mgTraining: {} }); } catch (e) { return; }
+      if (check.mgTraining && check.mgTraining.rev === next.rev) return;
+    }
+  }
+
   function flushLog() {
     if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
     if (!storage || !pendingLog.length) return;
     const batch = pendingLog;
     pendingLog = [];
     writeChain = writeChain
-      .then(() => storage.get({ mgTraining: {} }))
-      .then((res) => {
-        const store = migrateTraining(res.mgTraining);
+      .then(() => writeTrainingCAS((store) => {
         for (const r of batch) (store[r.tier] || store.corrected).push(r);
         capArr(store.corrected, TRAIN_CAPS.corrected);
         capArr(store.seen, TRAIN_CAPS.seen);
         capArr(store.auto, TRAIN_CAPS.auto);
-        return storage.set({ mgTraining: store });
-      })
+        return store;
+      }))
       .catch(() => {});
   }
 
@@ -373,16 +409,14 @@
     pendingLog = pendingLog.filter((r) => !inRange(r));
     if (!storage) return;
     writeChain = writeChain
-      .then(() => storage.get({ mgTraining: {} }))
-      .then((res) => {
-        const store = migrateTraining(res.mgTraining);
+      .then(() => writeTrainingCAS((store) => {
         let changed = false;
         for (const tier of ["corrected", "seen", "auto"]) {
           const kept = store[tier].filter((r) => !inRange(r));
           if (kept.length !== store[tier].length) { store[tier] = kept; changed = true; }
         }
-        if (changed) return storage.set({ mgTraining: store });
-      })
+        return changed ? store : null;
+      }))
       .catch(() => {});
   }
 
@@ -574,7 +608,7 @@
     ] },
   ];
 
-  const NUM = "(-?\\d{1,3}(?:,\\d{3})+|-?\\d+)(?:\\.(\\d+(?:\\s\\d{2,})*))?(?:\\s+(\\d+)\\s*/\\s*(\\d+))?";
+  const NUM = "(-?\\d{1,3}(?:,\\d{3})+|-?\\d+)(?:\\.(\\d+))?(?:\\s+(\\d+)\\s*/\\s*(\\d+))?";
   const UNIT_ALT = UNITS.map((u) => u.pattern).join("|");
   const UNIT_RE = new RegExp("(?<![\\w])" + NUM + "\\s*(" + UNIT_ALT + ")(?![\\w°])", "gi");
   const UNIT_RES = UNITS.map((u) => ({ unit: u, re: new RegExp("^(?:" + u.pattern + ")$", "i") }));
@@ -583,12 +617,13 @@
   // bare in/ft/yd (the × strongly signals dimensions); with "by" we require
   // full unit words, since "5 by 3 in the box" is ordinary English.
   const DIM_UNIT_ALT = "in|inch|inches|in\\.|″|ft|feet|foot|ft\\.|′|yd|yds?|yards?|yd\\.";
+  const DIM_NUM = "\\d{1,3}(?:,\\d{3})+|\\d+";
   const DIM_RE_X = new RegExp(
-    "(\\d+(?:\\.\\d+)?)((?:\\s*[x×]\\s*\\d+(?:\\.\\d+)?){1,})\\s*(" + DIM_UNIT_ALT + ")(?![\\w°])",
+    "(?<![\\w])(" + DIM_NUM + "(?:\\.\\d+)?)((?:\\s*[x×]\\s*(?:" + DIM_NUM + ")(?:\\.\\d+)?){1,})\\s*(" + DIM_UNIT_ALT + ")(?![\\w°])",
     "gi"
   );
   const DIM_RE_BY = new RegExp(
-    "(\\d+(?:\\.\\d+)?)((?:\\s*by\\s*\\d+(?:\\.\\d+)?){1,})\\s*(" + UNIT_ALT + ")(?![\\w°])",
+    "(?<![\\w])(" + DIM_NUM + "(?:\\.\\d+)?)((?:\\s*by\\s*(?:" + DIM_NUM + ")(?:\\.\\d+)?){1,})\\s*(" + UNIT_ALT + ")(?![\\w°])",
     "gi"
   );
   const DIM_UNITS = [
@@ -755,7 +790,6 @@
   // cubic inch/foot/yard are different names, so they are NOT grouped. When one
   // is detected, the hover panel offers the rest as one-tap reinterpretations.
   const ALT_CLUSTERS = [
-    ["usfloz", "usfloz_food", "impfloz"],     // fluid ounce
     ["usqt", "usdryqt", "impqt"],             // quart (US liquid / US dry / imperial)
     ["uspt", "usdrypt", "imppt"],             // pint
     ["usgal", "impgal"],                      // gallon
@@ -763,7 +797,10 @@
     ["bushel", "bushel_imp"],                 // bushel
     ["mi", "nmi"],                            // mile (statute / nautical)
     ["mil", "mil_se"],                        // mil (thou / Swedish mil)
-    ["oz", "ozt"],                            // ounce (avoirdupois / troy)
+    // Bare "oz"/"ounce" is ambiguous between weight and volume (e.g. "a
+    // tumbler holds 12 oz"), so the weight and fluid readings share one
+    // cluster instead of being offered separately.
+    ["oz", "ozt", "usfloz", "usfloz_food", "impfloz"],
     ["lb", "lb_troy"],                        // pound (avoirdupois / troy)
     ["ton_us", "ton_long", "tonne"],          // ton (short / long / metric)
     ["cwt_us", "cwt_uk"],                     // hundredweight
@@ -1275,9 +1312,9 @@
         const unitText = m[3];
         const unit = findDimUnit(unitText);
         if (!unit) continue;
-        const nums = (m[1] + m[2]).match(/-?\d+(?:\.\d+)?/g);
+        const nums = (m[1] + m[2]).match(/-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?/g);
         if (!nums || nums.length < 2) continue;
-        const values = nums.map((n) => parseFloat(n));
+        const values = nums.map((n) => parseFloat(n.replace(/,/g, "")));
         if (values.some((v) => !isFinite(v))) continue;
         out.push({
           start: m.index, end: m.index + full.length, full, kind: "unit",
@@ -1589,6 +1626,7 @@
   // labelled with the unit it resolved to, so the dataset isn't all corrections.
   function maybeLogPositive(c, contextText) {
     if (!settings.logSamples || Math.random() >= SAMPLE_RATE) return;
+    if (c.forceUnitId || c.forced) return; // already logged once as a hand-made correction
     let label, unitId;
     if (c.kind === "price") { label = "auto:price"; unitId = "price"; }
     else if (c.dim) return; // skip dimension lists for now
@@ -1911,10 +1949,10 @@
     span.setAttribute("data-kind", "unit");
     span.setAttribute("data-variant", unitId);
     span.setAttribute("aria-label", `${span.textContent}, originally ${original}, activate to review`);
-    logTrainingExample("interpretation:" + unitId, original, span.parentElement ? span.parentElement.textContent : original, { node: span, unitId: unitId, interacted: true });
+    logTrainingExample("interpretation:" + unitId, original, span.parentElement ? contextTextOf(span.parentElement) :original, { node: span, unitId: unitId, interacted: true });
     recordForceUnit(span, original, unitId);
     if (manage) {
-      if (tracked) spanTrain.set(span, [trainFrom, trainUid]);
+      spanTrain.set(span, [trainFrom, trainUid]);
       pushUndo("interpretation", () => restoreSpanState(span, prev), rulesBefore, [trainFrom, trainUid]);
     }
     return true;
@@ -1930,7 +1968,7 @@
 
     const ca = range.commonAncestorContainer;
     const ctxEl = ca.nodeType === Node.ELEMENT_NODE ? ca : ca.parentElement;
-    const ctxText = ctxEl ? ctxEl.textContent : range.toString();
+    const ctxText = ctxEl ? contextTextOf(ctxEl) : range.toString();
 
     // ── Multi-value path ──────────────────────────────────────────────────────
     // Build a character-to-DOM map for the selected text nodes, then find every
@@ -2090,7 +2128,7 @@
     const trainFrom = trainUid;
     const _ca = range.commonAncestorContainer;
     const _ctxEl = _ca && _ca.nodeType === Node.ELEMENT_NODE ? _ca : _ca && _ca.parentElement;
-    const priceCtx = _ctxEl ? _ctxEl.textContent : range.toString();
+    const priceCtx = _ctxEl ? contextTextOf(_ctxEl) : range.toString();
 
     let priceStr = null;
     let value = null;
@@ -2136,8 +2174,11 @@
     if (value === null || !isFinite(value)) return { ok: false, reason: "no_value" };
 
     const rounded = roundedPriceValue(value, force);
-    const intVal = rounded === null ? Math.round(value) : rounded;
-    const disp = (symbol || "").replace(/\s+$/, "") + intVal.toLocaleString("en-US");
+    const cents = Math.round((value - Math.floor(value)) * 100);
+    const sym = (symbol || "").replace(/\s+$/, "");
+    const disp = (rounded === null && cents !== 0)
+      ? sym + value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : sym + (rounded === null ? Math.round(value) : rounded).toLocaleString("en-US");
 
     const frag = range.extractContents();
     const span = document.createElement("span");
@@ -2188,9 +2229,9 @@
     span.setAttribute("data-kind", "price");
     span.removeAttribute("data-variant");
     span.setAttribute("aria-label", `${disp}, originally ${original}, activate to review`);
-    logTrainingExample("price", original, span.parentElement ? span.parentElement.textContent : original, { node: span, unitId: "price", interacted: true });
+    logTrainingExample("price", original, span.parentElement ? contextTextOf(span.parentElement) :original, { node: span, unitId: "price", interacted: true });
     if (force) recordForcePrice(span, original);
-    if (tracked) spanTrain.set(span, [trainFrom, trainUid]);
+    spanTrain.set(span, [trainFrom, trainUid]);
     pushUndo("price", () => restoreSpanState(span, prev), rulesBefore, [trainFrom, trainUid]);
     return { ok: true };
   }
@@ -2205,7 +2246,7 @@
     const kind = span.getAttribute("data-kind");
     const variant = span.getAttribute("data-variant");
     const original = span.getAttribute("data-original") || "";
-    const ctx = span.parentElement ? span.parentElement.textContent : original;
+    const ctx = span.parentElement ? contextTextOf(span.parentElement) :original;
     const from = trainUid;
     if (wasUserMade) {
       if (kind === "price") {
@@ -2233,7 +2274,7 @@
     // auto-detected span the detector got wrong, log the negative as before.
     const wasUserMade = retractSpanTrain(span);
     if (!wasUserMade) {
-      const parentText = span.parentElement ? span.parentElement.textContent : "";
+      const parentText = span.parentElement ? contextTextOf(span.parentElement) :"";
       const ctx = parentText.replace(span.textContent, original);
       logTrainingExample("not_a_conversion", original, ctx, { node: span, unitId: span.getAttribute("data-variant") || null });
     }
@@ -2276,7 +2317,7 @@
     } else {
       const prev = spanState(span);
       reconvertSpan(span, variantId, true); // defer: supersede/track/undo handled here
-      if (tracked) spanTrain.set(span, [trainFrom, trainUid]);
+      spanTrain.set(span, [trainFrom, trainUid]);
       pushUndo("interpretation", () => restoreSpanState(span, prev), rulesBefore, [trainFrom, trainUid]);
     }
   }
@@ -2332,7 +2373,7 @@
       span.__mgSeenLogged = true;
       const vid = span.getAttribute("data-variant") || (kind === "price" ? "price" : null);
       logTrainingExample("seen:" + (vid || "unit"), original || span.textContent,
-        span.parentElement ? span.parentElement.textContent : (original || ""),
+        span.parentElement ? contextTextOf(span.parentElement) :(original || ""),
         { tier: "seen", seen: true, interacted: false, node: span, unitId: vid });
     }
 
@@ -2488,7 +2529,7 @@
           // the "it's currency" option available alongside the unit choices.
           if (c && c.unit) {
             applicableVariants(c).filter((v) => v.money).forEach((variant) => {
-              const parentText = span.parentElement ? span.parentElement.textContent : "";
+              const parentText = span.parentElement ? contextTextOf(span.parentElement) :"";
               const ctx = parentText.replace(span.textContent, original);
               options.push({
                 id: variant.id, name: variant.label, info: infoFor(variant), current: variant.id === currentId,
@@ -2501,7 +2542,7 @@
           const appl = applicableVariants(c);
           if (appl.length > 1) {
             appl.forEach((variant) => {
-              const parentText = span.parentElement ? span.parentElement.textContent : "";
+              const parentText = span.parentElement ? contextTextOf(span.parentElement) :"";
               const ctx = parentText.replace(span.textContent, original);
               options.push({
                 id: variant.id, name: variant.label, info: infoFor(variant), current: variant.id === currentId,
@@ -2797,7 +2838,7 @@
     hidePanel();
     openPicker({
       seedText: span.getAttribute("data-original") || "",
-      context: span.parentElement ? span.parentElement.textContent : "",
+      context: span.parentElement ? contextTextOf(span.parentElement) :"",
       span: span,
       currentId: span.getAttribute("data-variant") || null,
       apply: (id) => { reconvertSpan(span, id); hidePanel(); showPanelFor(span); },
@@ -2822,7 +2863,7 @@
     if (!ctxText && range) {
       const ca = range.commonAncestorContainer;
       const el = ca && ca.nodeType === Node.ELEMENT_NODE ? ca : (ca && ca.parentElement);
-      ctxText = el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
+      ctxText = el ? contextTextOf(el).replace(/\s+/g, " ").trim() : "";
     }
 
     const overlay = document.createElement("div");
@@ -3239,6 +3280,7 @@
     renderPickStage1();
     document.addEventListener("mousemove", onPickMove, true);
     document.addEventListener("mousedown", onPickClick, true);
+    document.addEventListener("click", onPickSuppressClick, true);
     document.addEventListener("keydown", onPickKey, true);
     document.addEventListener("scroll", hideBox, true);
   }
@@ -3248,6 +3290,7 @@
     pickStage = 0;
     document.removeEventListener("mousemove", onPickMove, true);
     document.removeEventListener("mousedown", onPickClick, true);
+    document.removeEventListener("click", onPickSuppressClick, true);
     document.removeEventListener("keydown", onPickKey, true);
     document.removeEventListener("scroll", hideBox, true);
     setCrosshair(false);
@@ -3276,6 +3319,15 @@
     if (pickStage !== 1) return; // stage 2 is driven by the bar
     const t = pickTargetAt(e.clientX, e.clientY);
     if (t) pickElement(t);
+  }
+  // mousedown alone doesn't stop the click's default action (link navigation,
+  // button activation), so also swallow the click that follows it.
+  function onPickSuppressClick(e) {
+    if (!pickOn) return;
+    if (e.target && e.target.closest && e.target.closest("[" + UI_ATTR + "]")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
   }
 
   // The element a point resolves to, climbed to its nearest block ancestor so

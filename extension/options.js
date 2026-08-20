@@ -140,7 +140,8 @@
       if (e.altKey) mods.push("Alt");
       if (e.shiftKey) mods.push("Shift");
     }
-    if (!mods.length) {
+    const hasPrimary = isMac ? (e.metaKey || e.ctrlKey) : (e.ctrlKey || e.altKey);
+    if (!hasPrimary) {
       $spStatus.textContent = "Include " + (isMac ? "Cmd or Ctrl" : "Ctrl or Alt") + " in the combination.";
       return;
     }
