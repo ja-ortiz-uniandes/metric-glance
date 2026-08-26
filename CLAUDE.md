@@ -122,6 +122,25 @@ POST `{ install_id, records: [...] }` with headers `X-MG-Ts` (epoch seconds) and
 
 ---
 
+## Currencies and price rounding
+
+Price rounding is currency-aware. `settings.currencies` (editable in Preferences, defaults in `DEFAULT_SETTINGS`) lists per currency: the three-letter code, a display name, the symbol as pages write it, the thousands separator, the decimal separator, and `step`, the amount that counts as one unit for rounding. `step` is 1 for the dollar and 1000 for the Colombian peso, because one peso is not a meaningful amount, so rounding runs in units of `step`: COP 149.916 rounds to COP 150.000 the same way $1.99 rounds to $2. The cents threshold and the next-ten rule are read in hundredths of a unit, so one setting covers every currency.
+
+Which currency a price is in is resolved by `currencyFor()` and `pageCurrency()` in `converter.js`, in this order:
+
+1. an explicit mark on the price itself (`US$`, `COL$`, `COP`), since the page is being specific
+2. the user's choice for this host, stored as `rules.hosts[host].currency` (set from the hover panel's Currency section or the Smart Picker's currency menu, and applied to every price on the site)
+3. the page's own `priceCurrency` (microdata, JSON-LD, or a meta tag)
+4. `settings.defaultCurrency` when it is not `"auto"`
+5. the site's TLD or `<html lang>` region, via `REGION_CURRENCY`
+6. the digit grouping, as a last hint: a three-digit tail after a separator ("149.916") means that separator groups thousands
+
+Amounts are parsed structurally rather than by locale: the money regex only ever takes a one or two digit fraction, so a three-digit tail is always grouping and "149.916" can never be read as 149 and 91.6 cents.
+
+A currency picked by the user is logged as a training example (`interpretation:price-<CODE>`, with `unit_id` = `price:<CODE>`), so the eventual classifier sees which currency a site prices in alongside the url, lang and context fields it already gets. No new record field was added.
+
+---
+
 ## Key seams for future work
 
 - `proposeSpans()` in `converter.js`: where the regex engine currently runs. Slot a trained encoder here when ready. The `useEncoder` and `encoderModelUrl` settings keys are already in `DEFAULT_SETTINGS` as placeholders.

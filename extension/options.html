@@ -85,6 +85,43 @@
       cursor: pointer;
     }
     .actionbtn:hover { background: #e9ebf0; }
+    .curcard {
+      border: 1px solid #e7e9ee;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 8px;
+    }
+    .curcard .curhead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .curcard .curname { font-weight: 600; font-size: 14px; }
+    .curgrid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 10px;
+      align-items: center;
+      font-size: 13px;
+      color: #5a6172;
+    }
+    .curgrid input[type="text"], .curgrid input[type="number"], .curgrid select {
+      width: 100%;
+      font-size: 14px;
+    }
+    .curcard .cursample { margin-top: 8px; font-size: 12.5px; color: #5a6172; }
+    .smallbtn {
+      font-size: 12.5px;
+      padding: 4px 8px;
+      border: 1px solid #c6cad3;
+      border-radius: 6px;
+      background: #f4f5f8;
+      cursor: pointer;
+    }
+    .smallbtn:hover { background: #e9ebf0; }
+    .smallbtn.danger { color: #b42318; border-color: #e0b4ae; }
     .actionbtn.danger { color: #b42318; border-color: #e0b4ae; }
     .infoicon {
       display: inline-flex;
@@ -168,6 +205,21 @@
 
   <div class="example" id="example"></div>
   <div id="status"></div>
+
+  <h1 style="margin-top:22px">Currencies</h1>
+  <p class="hint">Rounding works in whole units of a currency. One unit is $1 for the dollar but 1.000 for the Colombian peso, since a single peso is not a meaningful amount, so COL&nbsp;$&nbsp;149.916 rounds to COL&nbsp;$&nbsp;150.000. Each currency also says how its prices are written.</p>
+
+  <div class="row">
+    <label for="defcur">Default currency
+      <span class="sub" title="Which currency to assume when the page does not say. Auto reads the page: its priceCurrency data, the site address, the page language, and how the digits are grouped.">Auto works it out from the page.</span>
+    </label>
+    <select id="defcur"></select>
+  </div>
+
+  <div class="row" style="display:block; border-bottom:none">
+    <div id="currencies" style="margin-top:8px"></div>
+    <button id="cur-add" class="actionbtn">Add currency</button>
+  </div>
 
   <h1 style="margin-top:22px">Number formatting</h1>
   <p class="hint">Controls how metric values are displayed. e.g. 0.62 m becomes 62 cm, 551 ml stays 551 ml.</p>

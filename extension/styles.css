@@ -246,6 +246,14 @@
 .mg-pk-current { margin-left: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--mg-accent-fg); background: var(--mg-accent); padding: 1px 6px; border-radius: 8px; }
 .mg-pk-pricerow .mg-pk-nm { font-weight: 600; }
 .mg-pk-pricerow .mg-pk-cat { color: var(--mg-accent); }
+.mg-pk-currow { cursor: default; }
+.mg-pk-currow:hover { background: transparent; }
+.mg-pk-cursel {
+  max-width: 60%; padding: 4px 6px; font-size: 12.5px;
+  color: var(--mg-fg); background: var(--mg-bg);
+  border: 1px solid var(--mg-border); border-radius: 6px;
+}
+.mg-pk-cursel:focus-visible { outline: 2px solid var(--mg-accent); outline-offset: -1px; }
 .mg-pk-min {
   margin-left: 8px; border: 0; background: transparent; color: var(--mg-muted);
   font-size: 20px; line-height: 1; cursor: pointer; padding: 0 6px; border-radius: 6px;

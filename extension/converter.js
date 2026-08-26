@@ -58,6 +58,19 @@
     priceNextTen: true,
     priceNextTenDigit: 9, // 1..9
     priceNextTenMin: 19,  // leave small prices alone below this
+    // Known currencies, editable in Preferences. `step` is the amount that
+    // counts as one unit for rounding: 1 for the dollar (round $1.99 to $2),
+    // 1000 for the Colombian peso (round COP 149.916 to COP 150.000), because
+    // one peso is not a meaningful amount. `thousands`/`decimal` are that
+    // currency's separators, used both to read prices off the page and to write
+    // the rounded value back.
+    currencies: [
+      { code: "USD", name: "Default", symbol: "$", thousands: ",", decimal: ".", step: 1 },
+      { code: "COP", name: "Colombian peso", symbol: "$", thousands: ".", decimal: ",", step: 1000 },
+    ],
+    // "auto" = work the currency out from the page (see pageCurrency).
+    // A currency code here is assumed whenever the page does not say otherwise.
+    defaultCurrency: "auto",
     // When on, log a small random sample of the conversions the detector got
     // right (not just corrections), so the eventual training set is balanced.
     logSamples: false,
@@ -100,10 +113,15 @@
   // never leaks to other sites, nor to other occurrences of the same text on
   // the page. Types: block (not a conversion), forceUnit (convert as a unit),
   // forcePrice (round as a price).
+  //
+  // The bucket also carries `currency`: the currency code the user picked for
+  // this site (from the hover panel or the picker). Unlike the rule arrays it
+  // is not anchored to one occurrence, because a site prices everything in one
+  // currency; it overrides page detection for every price on the host.
   // ---------------------------------------------------------------
   const HOST = String(location.hostname || "").trim().toLowerCase().replace(/\.$/, "");
   const CTX_WIN = 24; // chars of surrounding context kept on each side
-  const EMPTY_BUCKET = { block: [], forceUnit: [], forcePrice: [] };
+  const EMPTY_BUCKET = { block: [], forceUnit: [], forcePrice: [], currency: null };
 
   function bucket(create) {
     if (!rules.hosts) rules.hosts = {};
@@ -223,6 +241,7 @@
     conversion: "Undid conversion",
     price: "Undid price rounding",
     interpretation: "Undid interpretation change",
+    currency: "Undid currency change",
     removal: "Restored conversion",
   };
   function flashUndo(label) {
@@ -1198,48 +1217,332 @@
 
   // ---------------------------------------------------------------
   // Price engine
+  //
+  // A price is a currency mark plus an amount, and the currency decides how
+  // both halves are read. Separators differ ("1,234.56" against "1.234,56"),
+  // and so does the amount that counts as one unit for rounding: one dollar,
+  // but one thousand Colombian pesos, since a single peso is not a meaningful
+  // amount. Every price therefore resolves a currency first (currencyFor),
+  // then parses, rounds and formats through it.
   // ---------------------------------------------------------------
-  const PRICE_RE = new RegExp(
-    "(US\\$|CA\\$|A\\$|NZ\\$|HK\\$|[$€£¥])\\s?(\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.(\\d{1,2}))?(?!\\d)",
-    "g"
-  );
+  const FALLBACK_CURRENCY = {
+    code: "USD", name: "Default", symbol: "$", thousands: ",", decimal: ".", step: 1,
+  };
 
-  // Parse a price out of plain text (currency symbol + amount). Returns
-  // {priceStr, value, symbol} or null. Used for the picker preview/indicator.
-  function parsePriceText(text) {
-    const t = (text || "").replace(/\s+/g, " ").trim();
-    PRICE_RE.lastIndex = 0;
-    let m = PRICE_RE.exec(t);
-    if (!m) { PRICE_RE.lastIndex = 0; m = PRICE_RE.exec(t.replace(/\s+/g, "")); }
-    if (m) {
-      const value = parseFloat(m[2].replace(/,/g, "")) + (m[3] ? parseFloat("0." + m[3]) : 0);
-      if (isFinite(value)) return { priceStr: m[0], value, symbol: m[1] };
-    }
-    // No currency symbol: allow declaring any bare number as a price.
-    const bm = t.match(/-?\d[\d,]*(?:\.\d+)?/);
-    if (!bm) return null;
-    const v = parseFloat(bm[0].replace(/,/g, ""));
-    if (!isFinite(v)) return null;
-    return { priceStr: bm[0], value: v, symbol: "" };
+  // Currency by region, for the TLD / <html lang> signal. Only codes the user
+  // actually keeps in their list are ever used, so extra entries are harmless.
+  const REGION_CURRENCY = {
+    CO: "COP", CL: "CLP", US: "USD", GB: "GBP", CA: "CAD", AU: "AUD", NZ: "NZD",
+    MX: "MXN", AR: "ARS", PY: "PYG", ID: "IDR", VN: "VND", JP: "JPY", KR: "KRW",
+    IS: "ISK", HU: "HUF", BR: "BRL", PE: "PEN", EU: "EUR",
+  };
+
+  // Marks that name exactly one currency. A bare "$" is deliberately absent:
+  // it is the symbol of both the dollar and the peso, so it pins nothing and
+  // detection falls through to the page signals.
+  const MARK_CURRENCY = {
+    "US$": "USD", "CA$": "CAD", "A$": "AUD", "NZ$": "NZD", "HK$": "HKD",
+    "COL$": "COP", "COP$": "COP", "CLP$": "CLP", "MX$": "MXN", "R$": "BRL",
+    "€": "EUR", "£": "GBP", "¥": "JPY", "₱": "PHP",
+    "₩": "KRW", "₹": "INR",
+  };
+  // Symbols recognized even when no currency in the list uses them, so a price
+  // is still found (and can be rounded) in a currency the user never added.
+  const BASE_SYMBOLS = Object.keys(MARK_CURRENCY).concat(["$"]);
+  const GROUP_SEPS = ".," + "\u00A0\u202F ";
+
+  let curCache = null;   // sanitized currency list
+  let moneyReCache = null;
+  let pageCurCache;      // undefined = not resolved yet, null = no signal
+  function invalidateCurrencies() {
+    curCache = null;
+    moneyReCache = null;
+    pageCurCache = undefined;
   }
 
-  // Round a price UP to the next whole unit, but only when it is within the
-  // configured cents threshold of that whole unit (or the user forced it).
-  // Then apply the next-ten rule: a whole price (or the whole result of the
-  // cents rounding) whose last digit is priceNextTenDigit rounds up to the
-  // next multiple of 10, so $19 -> $20 and $18.99 -> $19 -> $20. The rule is
-  // skipped below priceNextTenMin, compared against the whole value that
-  // would be displayed (so $18.99 counts as 19).
-  // Returns the rounded integer value, or null if it should be left alone.
+  // The stored list, sanitized: a bad entry from Preferences (or an older
+  // version) can never break detection, it is just dropped.
+  function currencies() {
+    if (curCache) return curCache;
+    const raw = Array.isArray(settings.currencies) ? settings.currencies : [];
+    const out = [];
+    for (const c of raw) {
+      const code = String((c && c.code) || "").trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(code) || out.some((x) => x.code === code)) continue;
+      let step = Math.round(Number(c.step));
+      if (!isFinite(step) || step < 1) step = 1;
+      out.push({
+        code,
+        name: String((c && c.name) || code),
+        symbol: String(c && c.symbol != null ? c.symbol : ""),
+        thousands: c && c.thousands != null ? String(c.thousands) : ",",
+        decimal: c && c.decimal != null ? String(c.decimal) : ".",
+        step,
+      });
+    }
+    curCache = out.length ? out : [FALLBACK_CURRENCY];
+    return curCache;
+  }
+  function currencyByCode(code) {
+    if (!code) return null;
+    const want = String(code).trim().toUpperCase();
+    return currencies().find((c) => c.code === want) || null;
+  }
+  function defaultCurrency() {
+    return currencyByCode("USD") || currencies()[0] || FALLBACK_CURRENCY;
+  }
+
+  // A mark like "COL$" is written with or without a space on real pages, so
+  // allow one between a letter prefix and the "$".
+  function markPattern(mark) {
+    return escapeRe(mark).replace(/([A-Za-z])(\\\$)/, "$1\\s?$2");
+  }
+
+  // The money regex, rebuilt whenever the currency list changes. Two shapes:
+  // a mark in front of the amount ("COL$ 149.916", "COP 149.916") and a code
+  // behind it ("149.916 COP").
+  //   1 mark   2 digits   3 fraction        (mark in front)
+  //   4 digits 5 fraction 6 code            (code behind)
+  function moneyRe() {
+    if (moneyReCache) return moneyReCache;
+    const list = currencies();
+    const codes = [];
+    const syms = [];
+    for (const c of list) {
+      if (!codes.includes(c.code)) codes.push(c.code);
+      if (c.symbol && !syms.includes(c.symbol)) syms.push(c.symbol);
+    }
+    for (const s of BASE_SYMBOLS) if (!syms.includes(s)) syms.push(s);
+    for (const code of Object.values(MARK_CURRENCY)) if (!codes.includes(code)) codes.push(code);
+    // Longest first, so "US$" is preferred over "$".
+    const byLen = (a, b) => b.length - a.length || (a < b ? -1 : 1);
+    syms.sort(byLen);
+    codes.sort(byLen);
+    const markAlt = syms.map(markPattern).concat(codes.map(escapeRe)).join("|");
+    const codeAlt = codes.map(escapeRe).join("|");
+    const num = "\\d{1,3}(?:[" + GROUP_SEPS + "]\\d{3})+|\\d+";
+    const frac = "(?:[.,](\\d{1,2}))?";
+    moneyReCache = new RegExp(
+      "(?<![A-Za-z0-9])(" + markAlt + ")\\s?(" + num + ")" + frac + "(?!\\d)" +
+      "|(?<![A-Za-z0-9.,])(" + num + ")" + frac + "\\s?(" + codeAlt + ")(?![A-Za-z0-9])",
+      "g"
+    );
+    return moneyReCache;
+  }
+
+  // Turn a regex match into {start, end, full, mark, suffix, code, value,
+  // hasFrac, groupSep}. `mark` is kept exactly as the page wrote it, so a
+  // rounded price is re-rendered in the page's own notation.
+  //
+  // Which separator is the decimal point is decided by structure, not by
+  // locale, because the regex only ever takes a one or two digit fraction:
+  // "149.916" is 149916 (a three-digit tail is grouping, no currency has
+  // three-digit cents), while "149,99" and "1.234,56" keep their fraction.
+  function readMoney(m) {
+    const front = m[1] != null;
+    const mark = front ? m[1] : "";
+    const numTok = String(front ? m[2] : m[4]);
+    const fracTok = front ? m[3] : m[5];
+    const suffix = front ? "" : m[6];
+    let value = parseFloat(numTok.replace(/\D/g, ""));
+    if (!isFinite(value)) return null;
+    if (fracTok) value += parseFloat("0." + fracTok);
+    const gm = numTok.match(new RegExp("[" + GROUP_SEPS + "]"));
+    const bare = mark.replace(/\s+/g, "").toUpperCase();
+    return {
+      start: m.index, end: m.index + m[0].length, full: m[0],
+      mark: mark.trim(), suffix: (suffix || "").trim(),
+      code: front
+        ? (MARK_CURRENCY[bare] || (/^[A-Z]{3}$/.test(bare) ? bare : null))
+        : String(suffix || "").toUpperCase(),
+      value, hasFrac: !!fracTok, groupSep: gm ? gm[0] : null,
+    };
+  }
+
+  function moneyMatches(text) {
+    const re = moneyRe();
+    re.lastIndex = 0;
+    const out = [];
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      if (re.lastIndex === m.index) re.lastIndex++; // never spin on an empty match
+      const info = readMoney(m);
+      if (info) out.push(info);
+    }
+    return out;
+  }
+  function firstMoney(text) {
+    const all = moneyMatches(text);
+    return all.length ? all[0] : null;
+  }
+
+  // --- currency detection ---------------------------------------------------
+  // Structured data first: a shop that declares priceCurrency is telling the
+  // truth about every price on the page.
+  function markupCurrencyCode() {
+    try {
+      const el = document.querySelector(
+        '[itemprop="priceCurrency"],meta[property="product:price:currency"],' +
+        'meta[property="og:price:currency"],meta[name="currency"]'
+      );
+      if (el) {
+        const raw = String(el.getAttribute("content") || el.textContent || "").trim().toUpperCase();
+        if (/^[A-Z]{3}$/.test(raw)) return raw;
+      }
+      const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+      for (let i = 0; i < scripts.length && i < 5; i++) {
+        const m = String(scripts[i].textContent || "").match(/"priceCurrency"\s*:\s*"([A-Za-z]{3})"/);
+        if (m) return m[1].toUpperCase();
+      }
+    } catch (e) { /* unreadable markup: fall through to the next signal */ }
+    return null;
+  }
+  // Then the site itself: <html lang="es-CO"> beats the TLD, because a .com
+  // storefront can still be a Colombian one.
+  function regionCurrencyCode() {
+    let region = null;
+    const tld = (HOST.match(/\.([a-z]{2})$/) || [])[1];
+    if (tld) region = tld === "uk" ? "GB" : tld.toUpperCase();
+    const lang = String((document.documentElement &&
+      document.documentElement.getAttribute("lang")) || "");
+    const lm = lang.match(/[-_]([A-Za-z]{2})(?:$|[-_])/);
+    if (lm) region = lm[1].toUpperCase();
+    return region ? REGION_CURRENCY[region] || null : null;
+  }
+  // The page's currency, resolved once: the user's choice for this site, then
+  // the page's own markup, then the Preferences default, then the region.
+  // Null means nothing said anything.
+  function pageCurrency() {
+    if (pageCurCache !== undefined) return pageCurCache;
+    let hit = currencyByCode(bucket(false).currency);
+    if (!hit) hit = currencyByCode(markupCurrencyCode());
+    if (!hit && settings.defaultCurrency && settings.defaultCurrency !== "auto") {
+      hit = currencyByCode(settings.defaultCurrency);
+    }
+    if (!hit) hit = currencyByCode(regionCurrencyCode());
+    pageCurCache = hit || null;
+    return pageCurCache;
+  }
+  // The currency of one price. A mark that names a single currency ("US$",
+  // "COP") wins over everything, since it is the page being explicit about
+  // this price. Otherwise the page signals decide; failing those, dot-grouped
+  // digits are themselves a hint (no currency has a three-digit cents part).
+  function currencyFor(c) {
+    if (c && c.code) {
+      const byMark = currencyByCode(c.code);
+      if (byMark) return byMark;
+    }
+    const page = pageCurrency();
+    if (page) return page;
+    if (c && c.groupSep && !c.hasFrac) {
+      const byFormat = currencies().find((u) => u.thousands === c.groupSep);
+      if (byFormat) return byFormat;
+    }
+    return defaultCurrency();
+  }
+  // Store the currency the user picked for this host.
+  function setSiteCurrency(code) {
+    const b = bucket(true);
+    b.currency = code ? String(code).toUpperCase() : null;
+    pageCurCache = undefined;
+    persistRules();
+  }
+
+  // --- formatting ----------------------------------------------------------
+  // Write a money amount with the currency's own separators.
+  function fmtMoney(value, cur, decimals) {
+    const c = cur || FALLBACK_CURRENCY;
+    const d = decimals || 0;
+    const neg = value < 0;
+    const fixed = Math.abs(value).toFixed(d);
+    const dot = fixed.indexOf(".");
+    const int = dot < 0 ? fixed : fixed.slice(0, dot);
+    const frac = dot < 0 ? "" : fixed.slice(dot + 1);
+    let out = groupInt(int, c.thousands);
+    if (frac) out += (c.decimal || ".") + frac;
+    return (neg ? "-" : "") + out;
+  }
+  // Re-attach the page's own currency mark to a formatted amount. Accepts
+  // either a money match (`mark`) or a candidate/parse result (`symbol`).
+  function withMark(numStr, info) {
+    const pre = (info && (info.mark || info.symbol) || "").replace(/\s+$/, "");
+    const post = info && info.suffix ? info.suffix : "";
+    // A mark spelled with letters ("COP") needs a gap before the digits; a
+    // symbol ("$", "COL$") sits flush against them.
+    const glue = /[A-Za-z0-9]$/.test(pre) ? "\u00A0" : "";
+    return pre + (pre ? glue : "") + numStr + (post ? "\u00A0" + post : "");
+  }
+  // How many decimals to show: none for a currency whose unit is worth more
+  // than one of its own units (there are no fractions of 1000 pesos here).
+  function moneyDecimals(cur, value) {
+    if (!cur || cur.step > 1) return 0;
+    return Number.isInteger(value) ? 0 : 2;
+  }
+
+  // One line about a currency, for the hover panel's info badge.
+  function currencyInfo(u) {
+    const sepName = (x) => {
+      if (x === "") return "none";
+      if (x === ".") return "dot";
+      if (x === ",") return "comma";
+      if (/^\s$/.test(x)) return "space";
+      return "\"" + x + "\"";
+    };
+    return u.name + " (" + u.code + "). Rounds to the nearest " +
+      fmtMoney(u.step, u, 0) + ". Thousands separator: " + sepName(u.thousands) +
+      ". Decimal separator: " + sepName(u.decimal) + ".";
+  }
+
+  // Parse a price out of plain text (mark plus amount). Returns
+  // {priceStr, value, symbol, suffix, code, currency, hasFrac, groupSep} or
+  // null. Used for the picker preview and for re-reading a span's original.
+  function parsePriceText(text) {
+    const t = (text || "").replace(/\s+/g, " ").trim();
+    let m = firstMoney(t);
+    if (!m) m = firstMoney(t.replace(/\s+/g, ""));
+    if (m) {
+      return {
+        priceStr: m.full, value: m.value, symbol: m.mark, suffix: m.suffix,
+        code: m.code, hasFrac: m.hasFrac, groupSep: m.groupSep,
+        currency: currencyFor(m),
+      };
+    }
+    // No currency mark: allow declaring any bare number a price.
+    const bm = t.match(/-?\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?|-?\d+(?:[.,]\d{1,2})?/);
+    if (!bm) return null;
+    const tok = bm[0];
+    const nm = tok.match(/^(-?\d{1,3}(?:[.,]\d{3})+|-?\d+)(?:[.,](\d{1,2}))?$/);
+    if (!nm) return null;
+    const info = readMoney([tok, undefined, undefined, undefined, nm[1], nm[2], ""]);
+    if (!info || !isFinite(info.value)) return null;
+    const value = tok.trim().charAt(0) === "-" ? -info.value : info.value;
+    return {
+      priceStr: tok, value, symbol: "", suffix: "", code: null,
+      hasFrac: !!nm[2], groupSep: info.groupSep, currency: currencyFor(info),
+    };
+  }
+
+  // Round a price UP to the next whole unit of its currency, but only when it
+  // is within the configured threshold of that unit (or the user forced it).
+  // One unit is the currency's `step`: 1 dollar, 1000 Colombian pesos. The
+  // threshold is read in hundredths of a unit, so at 60 it covers $1.99 (one
+  // cent short) and COP 149.916 (84 pesos short of 150.000) alike.
+  // Then the next-ten rule: a whole price whose last digit is
+  // priceNextTenDigit rounds up to the next multiple of ten units, so $19 ->
+  // $20, $18.99 -> $19 -> $20, and COP 190.000 -> COP 200.000. The rule is
+  // skipped below priceNextTenMin, compared against the whole number of units
+  // that would be displayed (so $18.99 counts as 19).
+  // Returns the rounded value in currency units, or null to leave it alone.
   // Examples (threshold 5): 1.99 -> 2, 1.95 -> 2, 1.50 -> null, 2.01 -> null.
-  // At threshold 99: 2.01 -> 3. Whole-unit prices (no cents) -> null unless
-  // the next-ten rule applies.
-  function roundedPriceValue(value, forced) {
-    const whole = Math.floor(value);
-    const fracCents = Math.round((value - whole) * 100); // 0..99
+  // At threshold 99: 2.01 -> 3. Whole prices -> null unless next-ten applies.
+  function roundedPriceValue(value, forced, cur) {
+    const step = cur && cur.step > 0 ? cur.step : 1;
+    const units = value / step;
+    const whole = Math.floor(units);
+    const fracCents = Math.round((units - whole) * 100); // hundredths of a unit
     let next = null;
     if (fracCents !== 0) {
-      const gapCents = 100 - fracCents; // cents needed to reach the next whole
+      const gapCents = 100 - fracCents; // hundredths needed to reach the next unit
       if (!forced && gapCents > settings.priceRoundCents) return null;
       next = whole + 1;
     }
@@ -1248,9 +1551,24 @@
     const min = Number(settings.priceNextTenMin);
     if (settings.priceNextTen && digit >= 1 && digit <= 9 && base > 0 &&
         base % 10 === digit && base >= (isFinite(min) ? min : 0)) {
-      return base + (10 - digit);
+      return (base + (10 - digit)) * step;
     }
-    return next;
+    return next === null ? null : next * step;
+  }
+  // How far below the next whole unit a price sits, in hundredths of a unit
+  // (cents for the dollar), for the "rounds up" indicator.
+  function priceGapCents(value, cur) {
+    const step = cur && cur.step > 0 ? cur.step : 1;
+    const units = value / step;
+    const frac = Math.round((units - Math.floor(units)) * 100);
+    return frac === 0 ? 0 : 100 - frac;
+  }
+  // The same shortfall as an amount of money (84 pesos, not 8 hundredths of a
+  // 1000-peso unit), for the hover panel's explanation.
+  function priceShortfall(value, cur) {
+    const step = cur && cur.step > 0 ? cur.step : 1;
+    const rem = value % step;
+    return rem === 0 ? 0 : step - rem;
   }
 
   // ---------------------------------------------------------------
@@ -1265,12 +1583,13 @@
     // pass when rounding is off, unless this host has forced-price corrections
     // that still need to re-apply on reload.
     if (settings.priceRounding || bucket(false).forcePrice.length) {
-      PRICE_RE.lastIndex = 0;
-      while ((m = PRICE_RE.exec(text)) !== null) {
-        const [full, symbol, intPart, cents] = m;
-        const value = parseFloat(intPart.replace(/,/g, "")) + (cents ? parseFloat("0." + cents) : 0);
-        if (!isFinite(value)) continue;
-        out.push({ start: m.index, end: m.index + full.length, full, kind: "price", value, symbol });
+      for (const mm of moneyMatches(text)) {
+        if (!isFinite(mm.value)) continue;
+        out.push({
+          start: mm.start, end: mm.end, full: mm.full, kind: "price", value: mm.value,
+          symbol: mm.mark, suffix: mm.suffix, code: mm.code,
+          hasFrac: mm.hasFrac, groupSep: mm.groupSep,
+        });
       }
     }
 
@@ -1434,9 +1753,10 @@
 
   function renderDisplay(c) {
     if (c.kind === "price") {
-      const rounded = roundedPriceValue(c.value, c.forced);
+      const cur = c.currency || currencyFor(c);
+      const rounded = roundedPriceValue(c.value, c.forced, cur);
       if (rounded === null) return null;
-      return c.symbol.replace(/\s+$/, "") + rounded.toLocaleString("en-US");
+      return withMark(fmtMoney(rounded, cur, moneyDecimals(cur, rounded)), c);
     }
     const v = variantFor(c);
     if (v.money || typeof v.toMetric !== "function") return null; // e.g. £ money
@@ -1628,7 +1948,10 @@
     if (!settings.logSamples || Math.random() >= SAMPLE_RATE) return;
     if (c.forceUnitId || c.forced) return; // already logged once as a hand-made correction
     let label, unitId;
-    if (c.kind === "price") { label = "auto:price"; unitId = "price"; }
+    if (c.kind === "price") {
+      const cur = c.currency || currencyFor(c);
+      label = "auto:price"; unitId = "price:" + cur.code;
+    }
     else if (c.dim) return; // skip dimension lists for now
     else {
       const v = variantFor(c);
@@ -1861,8 +2184,11 @@
   }
 
   function tryRewriteSplitPrice(wrapper) {
-    // Collect this wrapper's text nodes. `full` = a contiguous full price with
-    // cents found anywhere inside (e.g. an offscreen copy) = reliable value.
+    // Collect this wrapper's text nodes. `full` = a contiguous complete price
+    // found anywhere inside (e.g. an offscreen copy) = reliable value. A price
+    // counts as complete when it carries its own fraction ("$12.77") or its own
+    // grouping ("$1,299", "COP 149.916"); a bare "$12" could be a fragment.
+    const complete = (mm) => !!mm && (mm.hasFrac || !!mm.groupSep);
     const visibleNodes = [];
     let full = null;
     const w = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT, null);
@@ -1870,9 +2196,8 @@
     while ((n = w.nextNode())) {
       const val = n.nodeValue || "";
       if (!val.trim()) continue;
-      PRICE_RE.lastIndex = 0;
-      const m = PRICE_RE.exec(val);
-      if (m && m[3] && m[0].replace(/\s+/g, "").length >= val.trim().length) full = m;
+      const m = firstMoney(val);
+      if (complete(m) && m.full.replace(/\s+/g, "").length >= val.trim().length) full = m;
       if (!isSkippable(n)) visibleNodes.push(n);
     }
     if (visibleNodes.length < 2) return false; // not split; the text pass handles it
@@ -1880,25 +2205,22 @@
     const visibleStr = visibleNodes.map((t) => t.nodeValue).join("");
     if (/[A-Za-z]/.test(visibleStr)) return false; // wrapper holds words, too big
 
-    let priceStr, value, symbol;
-    if (full) {
-      priceStr = full[0];
-      symbol = full[1];
-      value = parseFloat(full[2].replace(/,/g, "")) + (full[3] ? parseFloat("0." + full[3]) : 0);
-    } else {
-      // No contiguous copy: reconstruct from visible parts (needs a decimal).
-      PRICE_RE.lastIndex = 0;
-      const m = PRICE_RE.exec(visibleStr.replace(/\s+/g, ""));
-      if (!m || !m[3]) return false;
-      priceStr = m[0];
-      symbol = m[1];
-      value = parseFloat(m[2].replace(/,/g, "")) + parseFloat("0." + m[3]);
+    let info = full;
+    if (!info) {
+      // No contiguous copy: reconstruct from the visible parts.
+      info = firstMoney(visibleStr.replace(/\s+/g, ""));
+      if (!complete(info)) return false;
     }
+    const priceStr = info.full;
+    const value = info.value;
 
     if (bucket(false).block.some((r) => occMatchesNode(r, priceStr, wrapper))) return false;
     const forced = bucket(false).forcePrice.some((r) => occMatchesNode(r, priceStr, wrapper));
     if (!settings.priceRounding && !forced) return false;
-    const disp = renderDisplay({ kind: "price", value, symbol, full: priceStr, forced });
+    const disp = renderDisplay({
+      kind: "price", value, symbol: info.mark, suffix: info.suffix, code: info.code,
+      hasFrac: info.hasFrac, groupSep: info.groupSep, full: priceStr, forced,
+    });
     if (!disp || disp === priceStr) return false;
 
     while (wrapper.firstChild) wrapper.removeChild(wrapper.firstChild);
@@ -2121,7 +2443,9 @@
   // User selected a price (possibly in odd/split markup) and asked to round it.
   // Replaces the entire selected range with a single rounded value, using the
   // most reliable price found in the selection (a contiguous copy if present).
-  function forcePriceFromSelection(range, force) {
+  // `curCode` pins the currency (the picker's currency menu); without it the
+  // usual detection decides.
+  function forcePriceFromSelection(range, force, curCode) {
     if (force === undefined) force = true;
     if (!range || range.collapsed) return { ok: false, reason: "empty" };
     const rulesBefore = snapshotRules();
@@ -2130,55 +2454,44 @@
     const _ctxEl = _ca && _ca.nodeType === Node.ELEMENT_NODE ? _ca : _ca && _ca.parentElement;
     const priceCtx = _ctxEl ? contextTextOf(_ctxEl) : range.toString();
 
-    let priceStr = null;
-    let value = null;
-    let symbol = null;
-
     const selText = range.toString().replace(/\s+/g, " ").trim();
-    PRICE_RE.lastIndex = 0;
-    let m = PRICE_RE.exec(selText);
-    if (m && m[3]) {
-      priceStr = m[0]; symbol = m[1];
-      value = parseFloat(m[2].replace(/,/g, "")) + parseFloat("0." + m[3]);
-    }
-    // Look for a contiguous full price (with cents) anywhere in the selection,
-    // e.g. an offscreen "$12.77" when the visible price is split.
-    if (value === null) {
+    // A price is trustworthy when it carries its own fraction or its own
+    // grouping; a bare "$12" inside a split price could be just the dollars.
+    const complete = (mm) => !!mm && (mm.hasFrac || !!mm.groupSep);
+    let info = null;
+    const m = firstMoney(selText);
+    if (complete(m)) info = m;
+    // Look for a contiguous complete price anywhere in the selection, e.g. an
+    // offscreen "$12.77" when the visible price is split.
+    if (!info) {
       const clone = range.cloneContents();
       const w = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT, null);
       let n;
       while ((n = w.nextNode())) {
-        PRICE_RE.lastIndex = 0;
-        const mm = PRICE_RE.exec(n.nodeValue || "");
-        if (mm && mm[3]) {
-          priceStr = mm[0]; symbol = mm[1];
-          value = parseFloat(mm[2].replace(/,/g, "")) + parseFloat("0." + mm[3]);
-          break;
-        }
+        const mm = firstMoney(n.nodeValue || "");
+        if (complete(mm)) { info = mm; break; }
       }
     }
-    // Last resort: any price-like sequence in the collapsed selection text.
-    if (value === null) {
-      PRICE_RE.lastIndex = 0;
-      const m2 = PRICE_RE.exec(selText.replace(/\s+/g, ""));
-      if (m2) {
-        priceStr = m2[0]; symbol = m2[1];
-        value = parseFloat(m2[2].replace(/,/g, "")) + (m2[3] ? parseFloat("0." + m2[3]) : 0);
+    // Last resort: any price-like sequence in the collapsed selection text,
+    // then a bare number the user is declaring to be a price.
+    if (!info) info = firstMoney(selText.replace(/\s+/g, ""));
+    if (!info) {
+      const p = parsePriceText(selText);
+      if (p) {
+        info = {
+          full: p.priceStr, value: p.value, mark: p.symbol, suffix: p.suffix,
+          code: p.code, hasFrac: p.hasFrac, groupSep: p.groupSep,
+        };
       }
     }
-    // No currency anywhere: let a bare number be declared a price.
-    if (value === null) {
-      const bm = selText.match(/-?\d[\d,]*(?:\.\d+)?/);
-      if (bm) { priceStr = bm[0]; symbol = ""; value = parseFloat(bm[0].replace(/,/g, "")); }
-    }
-    if (value === null || !isFinite(value)) return { ok: false, reason: "no_value" };
+    if (!info || !isFinite(info.value)) return { ok: false, reason: "no_value" };
 
-    const rounded = roundedPriceValue(value, force);
-    const cents = Math.round((value - Math.floor(value)) * 100);
-    const sym = (symbol || "").replace(/\s+$/, "");
-    const disp = (rounded === null && cents !== 0)
-      ? sym + value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : sym + (rounded === null ? Math.round(value) : rounded).toLocaleString("en-US");
+    const priceStr = info.full;
+    const value = info.value;
+    const cur = currencyByCode(curCode) || currencyFor(info);
+    const rounded = roundedPriceValue(value, force, cur);
+    const shown = rounded === null ? value : rounded;
+    const disp = withMark(fmtMoney(shown, cur, moneyDecimals(cur, shown)), info);
 
     const frag = range.extractContents();
     const span = document.createElement("span");
@@ -2197,7 +2510,7 @@
     ensureSpacing(span);
 
     const fPrice = trainUid;
-    logTrainingExample("price", priceStr || selText, priceCtx, { interacted: true, node: _ctxEl, unitId: "price" });
+    logTrainingExample("price", priceStr || selText, priceCtx, { interacted: true, node: _ctxEl, unitId: "price:" + cur.code });
     if (force) recordForcePrice(span, priceStr || selText);
     spanTrain.set(span, [fPrice, trainUid]);
     pushUndo("price", () => { retractSpanTrain(span); revertSpan(span); }, rulesBefore, [trainFrom, trainUid]);
@@ -2209,7 +2522,7 @@
   }
 
   // Re-mark an existing conversion span as a price (from the picker).
-  function reconvertSpanAsPrice(span, force) {
+  function reconvertSpanAsPrice(span, force, curCode) {
     if (force === undefined) force = false;
     const original = span.getAttribute("data-original") || "";
     const p = parsePriceText(original);
@@ -2219,21 +2532,64 @@
     const tracked = spanTrain.has(span);
     if (tracked) retractSpanTrain(span); // supersede the hand-made example being changed
     const trainFrom = trainUid;
-    const rounded = roundedPriceValue(p.value, force);
-    const cents = Math.round((p.value - Math.floor(p.value)) * 100);
-    const sym = p.symbol.replace(/\s+$/, "");
-    const disp = (rounded === null && cents !== 0)
-      ? sym + p.value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : sym + (rounded === null ? Math.round(p.value) : rounded).toLocaleString("en-US");
+    const cur = currencyByCode(curCode) || p.currency;
+    const rounded = roundedPriceValue(p.value, force, cur);
+    const shown = rounded === null ? p.value : rounded;
+    const disp = withMark(fmtMoney(shown, cur, moneyDecimals(cur, shown)), p);
     span.textContent = disp;
     span.setAttribute("data-kind", "price");
     span.removeAttribute("data-variant");
     span.setAttribute("aria-label", `${disp}, originally ${original}, activate to review`);
-    logTrainingExample("price", original, span.parentElement ? contextTextOf(span.parentElement) :original, { node: span, unitId: "price", interacted: true });
+    logTrainingExample("price", original, span.parentElement ? contextTextOf(span.parentElement) :original, { node: span, unitId: "price:" + cur.code, interacted: true });
     if (force) recordForcePrice(span, original);
     spanTrain.set(span, [trainFrom, trainUid]);
     pushUndo("price", () => restoreSpanState(span, prev), rulesBefore, [trainFrom, trainUid]);
     return { ok: true };
+  }
+
+  // The user picked the currency for this site (from the hover panel or the
+  // picker). It is stored on the host rather than on the one price, because a
+  // shop prices everything in one currency, then every price on the page is
+  // re-rendered through it.
+  function applySiteCurrency(code, span) {
+    const prev = bucket(false).currency || null;
+    const next = code ? String(code).toUpperCase() : null;
+    if (prev === next) return { ok: true };
+    const rulesBefore = snapshotRules();
+    const trainFrom = trainUid;
+    if (span && next) {
+      const original = span.getAttribute("data-original") || "";
+      logTrainingExample("interpretation:price-" + next, original,
+        span.parentElement ? contextTextOf(span.parentElement) : original,
+        { node: span, unitId: "price:" + next, interacted: true });
+    }
+    setSiteCurrency(next);
+    refreshPriceSpans();
+    rescan();
+    pushUndo("currency", () => {
+      setSiteCurrency(prev);
+      refreshPriceSpans();
+    }, rulesBefore, [trainFrom, trainUid]);
+    return { ok: true };
+  }
+
+  // Re-render every price already converted on the page, after the currency or
+  // the rounding settings changed. A price that no longer rounds goes back to
+  // the page's own text.
+  function refreshPriceSpans() {
+    const spans = document.querySelectorAll("." + MARK_CLASS + "[data-kind=\"price\"]");
+    spans.forEach((span) => {
+      const original = span.getAttribute("data-original") || "";
+      const p = parsePriceText(original);
+      if (!p) return;
+      const forced = bucket(false).forcePrice.some((r) => occMatchesNode(r, original, span));
+      const rounded = roundedPriceValue(p.value, forced, p.currency);
+      if (rounded === null) { revertSpan(span); return; }
+      const disp = withMark(fmtMoney(rounded, p.currency, moneyDecimals(p.currency, rounded)), p);
+      if (disp === span.textContent) return;
+      span.textContent = disp;
+      span.setAttribute("aria-label", disp + ", originally " + original + ", activate to review");
+    });
   }
 
   // Undoing a deletion does not resurrect the deleted record; it logs a fresh
@@ -2486,10 +2842,32 @@
       });
       el.appendChild(off);
     } else if (kind === "price" && c && c.kind === "price") {
+      const cur = currencyFor(c);
       addLine("mg-pop-line", original + "  →  " + span.textContent);
-      const whole = Math.floor(c.value);
-      const gap = 100 - Math.round((c.value - whole) * 100);
-      addLine("mg-pop-rate", "Rounded up to the next whole amount (gap " + gap + "¢).");
+      const gap = priceGapCents(c.value, cur);
+      if (cur.step > 1) {
+        addLine("mg-pop-rate", "Rounded up to the next " + fmtMoney(cur.step, cur, 0) + " " +
+          cur.code + " (short by " + fmtMoney(priceShortfall(c.value, cur), cur, 0) + ").");
+      } else {
+        addLine("mg-pop-rate", "Rounded up to the next whole amount (gap " + gap + "¢).");
+      }
+      // Which currency this site prices in. Picking one here applies to every
+      // price on the host, because a shop does not mix currencies.
+      const curList = currencies();
+      if (curList.length > 1) {
+        addLine("mg-pop-head", "Currency:");
+        curList.forEach((u) => {
+          const r = roundedPriceValue(c.value, c.forced, u);
+          el.appendChild(optionRow({
+            id: u.code,
+            name: u.name + " (" + u.code + ")",
+            info: currencyInfo(u),
+            current: u.code === cur.code,
+            preview: r === null ? "no change" : withMark(fmtMoney(r, u, moneyDecimals(u, r)), c),
+            onClick: () => { applySiteCurrency(u.code, span); hidePanel(); },
+          }));
+        });
+      }
     } else {
       // Unit display (auto-detected or explicitly chosen).
       const currentId = explicitVariant || (c && c.unit && !c.dim ? variantFor(c).id : null);
@@ -2858,7 +3236,11 @@
     const numMatch = selText.match(/-?\d[\d,]*(?:\.\d+)?/);
     const value = numMatch ? parseFloat(numMatch[0].replace(/,/g, "")) : null;
     const priceInfo = parsePriceText(selText);
-    const isPlausiblePrice = !!priceInfo && (priceInfo.symbol !== "" || /\d\.\d{2}(?!\d)/.test(selText));
+    // Grouped digits ("149.916") are as good a sign of a price as a currency
+    // mark or a cents part, and are how prices are written in currencies whose
+    // unit is a thousand.
+    const isPlausiblePrice = !!priceInfo &&
+      (priceInfo.symbol !== "" || priceInfo.hasFrac || !!priceInfo.groupSep);
     let ctxText = (opts.context || "").replace(/\s+/g, " ").trim();
     if (!ctxText && range) {
       const ca = range.commonAncestorContainer;
@@ -3088,11 +3470,52 @@
     };
 
     // "Treat as price": respects the rounding threshold so the indicator can
-    // honestly say whether the value will change.
+    // honestly say whether the value will change. The currency menu below the
+    // row decides which currency the amount is read in; picking one applies to
+    // the whole site, since a shop does not mix currencies.
+    let pickCurCode = null; // null = whatever detection resolved
+    const pickCur = () => currencyByCode(pickCurCode) ||
+      (priceInfo ? priceInfo.currency : defaultCurrency());
     const doPrice = () => {
-      if (pickerRange) forcePriceFromSelection(pickerRange, false);
-      else if (opts.span) { reconvertSpanAsPrice(opts.span, false); hidePanel(); showPanelFor(opts.span); }
+      const code = pickCur().code;
+      if (pickCurCode) applySiteCurrency(code, opts.span || null);
+      if (pickerRange) forcePriceFromSelection(pickerRange, false, code);
+      else if (opts.span) { reconvertSpanAsPrice(opts.span, false, code); hidePanel(); showPanelFor(opts.span); }
       closePicker();
+    };
+    // Currency menu, shown with the price row. Changing it only re-previews;
+    // nothing is applied until "Treat as price" is clicked.
+    const makeCurrencyRow = () => {
+      const row = document.createElement("div");
+      row.className = "mg-pk-row mg-pk-currow";
+      row.setAttribute(UI_ATTR, "1");
+      const sel = document.createElement("select");
+      sel.className = "mg-pk-cursel";
+      sel.id = "mg-pk-cursel";
+      sel.setAttribute(UI_ATTR, "1");
+      const label = document.createElement("label");
+      label.className = "mg-pk-nm";
+      label.textContent = "Currency";
+      label.setAttribute("for", sel.id);
+      const detected = priceInfo ? priceInfo.currency : defaultCurrency();
+      const auto = document.createElement("option");
+      auto.value = "";
+      auto.textContent = "Detected: " + detected.name + " (" + detected.code + ")";
+      sel.appendChild(auto);
+      currencies().forEach((u) => {
+        const o = document.createElement("option");
+        o.value = u.code;
+        o.textContent = u.name + " (" + u.code + ")";
+        sel.appendChild(o);
+      });
+      sel.value = pickCurCode || "";
+      sel.addEventListener("change", () => {
+        pickCurCode = sel.value || null;
+        renderList();
+      });
+      row.appendChild(label);
+      row.appendChild(sel);
+      return row;
     };
     const makePriceRow = () => {
       const row = document.createElement("button");
@@ -3106,20 +3529,24 @@
       nm.textContent = "Treat as price";
       const tag = document.createElement("span");
       tag.className = "mg-pk-cat";
-      const cents = Math.round((priceInfo.value - Math.floor(priceInfo.value)) * 100);
-      const roundedTo = roundedPriceValue(priceInfo.value, false);
+      const cur = pickCur();
+      const gap = priceGapCents(priceInfo.value, cur);
+      const roundedTo = roundedPriceValue(priceInfo.value, false, cur);
       const willRound = roundedTo !== null;
       tag.textContent = willRound
         ? "rounds up"
-        : (cents === 0 ? "already whole" : "not rounded (gap over " + settings.priceRoundCents + "\u00A2)");
+        : (gap === 0
+            ? "already whole"
+            : (cur.step > 1
+                ? "not rounded (short by " + fmtMoney(priceShortfall(priceInfo.value, cur), cur, 0) + ")"
+                : "not rounded (gap over " + settings.priceRoundCents + "\u00A2)"));
       left.appendChild(nm);
       left.appendChild(tag);
       const right = document.createElement("span");
       right.className = "mg-pk-prev";
-      const sym = priceInfo.symbol.replace(/\s+$/, "");
-      const from = sym + priceInfo.value.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 });
+      const from = withMark(fmtMoney(priceInfo.value, cur, moneyDecimals(cur, priceInfo.value)), priceInfo);
       right.textContent = willRound
-        ? from + " \u2192 " + sym + roundedTo.toLocaleString("en-US")
+        ? from + " \u2192 " + withMark(fmtMoney(roundedTo, cur, moneyDecimals(cur, roundedTo)), priceInfo)
         : from;
       row.appendChild(left);
       row.appendChild(right);
@@ -3155,6 +3582,7 @@
       if (activeCat === "Price") {
         if (priceInfo) {
           list.appendChild(makePriceRow());
+          if (currencies().length > 1) list.appendChild(makeCurrencyRow());
         } else {
           const empty = document.createElement("div");
           empty.className = "mg-pk-empty";
@@ -3166,7 +3594,10 @@
       const showPriceSug = activeCat === "All" && !q.trim() && !!priceInfo && (isPlausiblePrice || usingDefaults);
       if (suggested.length || showPriceSug) {
         list.appendChild(sectionHead("Suggestions"));
-        if (showPriceSug) list.appendChild(makePriceRow());
+        if (showPriceSug) {
+          list.appendChild(makePriceRow());
+          if (currencies().length > 1) list.appendChild(makeCurrencyRow());
+        }
         suggested.forEach((e) => list.appendChild(makeRow(e)));
         list.appendChild(sectionHead("All units"));
       }
@@ -3814,6 +4245,11 @@
         else { start(); }
       }
       if (changes.mgRules) { adoptRules(changes.mgRules.newValue); touched = true; }
+      // The currency list, the default currency and the rounding settings all
+      // change what an already-converted price should read, so re-render the
+      // prices on the page instead of leaving stale text behind.
+      if (changes.currencies || changes.defaultCurrency || changes.mgRules) invalidateCurrencies();
+      if (touched && started && !hostDisabled()) refreshPriceSpans();
       // A word term turned off has its existing swaps removed live; rescan
       // (below) re-adds any term turned back on.
       if (changes.wordSubs) {
