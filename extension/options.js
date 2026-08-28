@@ -8,13 +8,11 @@
     priceNextTen: true,
     priceNextTenDigit: 9,
     priceNextTenMin: 19,
-    // Mirrors DEFAULT_SETTINGS.currencies in converter.js. `step` is the
-    // amount that counts as one unit for rounding: 1 dollar, 1000 pesos.
-    currencies: [
-      { code: "USD", name: "Default", symbol: "$", thousands: ",", decimal: ".", step: 1 },
-      { code: "COP", name: "Colombian peso", symbol: "$", thousands: ".", decimal: ",", step: 1000 },
-    ],
-    defaultCurrency: "auto",
+    // Mirrors converter.js: `priceStep` is the amount that counts as one unit
+    // when rounding, and priceStepRules make bigger prices round in bigger
+    // units (a peso price of 149.916 rounds to 150.000).
+    priceStep: 1,
+    priceStepRules: [{ min: 10000, step: 1000 }],
     logSamples: false,
     maxOrderOfMagnitude: 3,
     decimalPlaces: 1,
@@ -96,10 +94,10 @@
   const $spRebind = document.getElementById("sp-rebind");
   const $spReset = document.getElementById("sp-reset");
   const $spStatus = document.getElementById("sp-status");
-  const $defcur = document.getElementById("defcur");
-  const $currencies = document.getElementById("currencies");
-  const $curadd = document.getElementById("cur-add");
-  let curState = [];
+  const $defstep = document.getElementById("defstep");
+  const $steprules = document.getElementById("steprules");
+  const $ruleadd = document.getElementById("rule-add");
+  let stepRulesState = [];
 
   // Rebind the "open-picker" command's shortcut (Firefox 60+: commands.update
   // / commands.reset). Recording captures the next real key combo pressed
@@ -243,228 +241,112 @@
     return next === null ? null : next * unit;
   }
 
-  // --- currencies ---------------------------------------------------------
-  // Mirrors the currency handling in converter.js: `step` is the amount that
-  // counts as one unit for rounding, and the separators are how that
-  // currency's prices are written.
-  const THOUSANDS_OPTIONS = [
-    [",", "comma (1,000)"],
-    [".", "dot (1.000)"],
-    [" ", "space (1 000)"],
-    ["", "none (1000)"],
-  ];
-  const DECIMAL_OPTIONS = [
-    [".", "dot (1.50)"],
-    [",", "comma (1,50)"],
-  ];
-  const STEP_OPTIONS = [
-    [1, "1 (dollar, euro)"],
-    [100, "100 (yen, won)"],
-    [1000, "1.000 (peso, rupiah)"],
-    [1000000, "1.000.000"],
-  ];
+  // --- rounding units -----------------------------------------------------
+  // Mirrors the step handling in converter.js: a step is the amount that counts
+  // as one unit when rounding, 1 for a dollar and 1000 for a Colombian peso.
+  const STEP_OPTIONS = [1, 10, 100, 1000, 10000, 100000];
 
-  function validCode(code) {
-    return /^[A-Z]{3}$/.test(String(code || "").trim().toUpperCase());
+  function clampStep(v) {
+    let n = Math.round(Number(v));
+    if (!isFinite(n) || n < 1) n = 1;
+    return Math.min(1000000000, n);
   }
-  // Drops entries that could not be used (no three-letter code, duplicates), so
-  // a half-typed row never breaks detection. The row stays on screen.
-  function sanitizeCurrencies(list) {
+  function clampThreshold(v) {
+    let n = Math.round(Number(v));
+    if (!isFinite(n) || n < 0) n = 0;
+    return Math.min(1000000000, n);
+  }
+  function sanitizeStepRules(list) {
     const out = [];
-    (Array.isArray(list) ? list : []).forEach((c) => {
-      const code = String((c && c.code) || "").trim().toUpperCase();
-      if (!validCode(code) || out.some((x) => x.code === code)) return;
-      let step = Math.round(Number(c && c.step));
-      if (!isFinite(step) || step < 1) step = 1;
-      out.push({
-        code,
-        name: String((c && c.name) || code).slice(0, 40),
-        symbol: String(c && c.symbol != null ? c.symbol : "").slice(0, 8),
-        thousands: c && c.thousands != null ? String(c.thousands) : ",",
-        decimal: c && c.decimal != null ? String(c.decimal) : ".",
-        step,
-      });
+    (Array.isArray(list) ? list : []).forEach((r) => {
+      const min = clampThreshold(r && r.min);
+      const step = clampStep(r && r.step);
+      if (out.some((x) => x.min === min)) return; // one rule per threshold
+      out.push({ min, step });
     });
-    return out.length ? out : DEFAULTS.currencies.map((c) => ({ ...c }));
+    return out.sort((a, b) => a.min - b.min);
   }
 
   function groupDigits(s, sep) {
     return sep ? s.replace(/\B(?=(\d{3})+(?!\d))/g, sep) : s;
   }
-  // Mirrors fmtMoney() in converter.js.
-  function fmtCur(value, cur, decimals) {
+  // Amounts in this page are written with the number-formatting separator, the
+  // same fallback converter.js uses when a price carries no separator itself.
+  function fmtAmount(value, decimals) {
+    const sep = $sep.value != null ? $sep.value : ",";
     const fixed = Math.abs(value).toFixed(decimals || 0);
     const dot = fixed.indexOf(".");
     const int = dot < 0 ? fixed : fixed.slice(0, dot);
     const frac = dot < 0 ? "" : fixed.slice(dot + 1);
-    let out = groupDigits(int, cur.thousands);
-    if (frac) out += (cur.decimal || ".") + frac;
+    let out = groupDigits(int, sep);
+    if (frac) out += (sep === "." ? "," : ".") + frac;
     return (value < 0 ? "-" : "") + out;
   }
-  function withCurMark(numStr, cur) {
-    const pre = String(cur.symbol || "");
-    if (!pre) return numStr;
-    return pre + (/[A-Za-z0-9]$/.test(pre) ? " " : "") + numStr;
-  }
-  function curDecimals(cur, value) {
-    if (cur.step > 1) return 0;
+  function stepDecimals(step, value) {
+    if (step > 1) return 0;
     return Number.isInteger(value) ? 0 : 2;
   }
 
-  function defaultCurrencyForExample() {
-    const list = sanitizeCurrencies(curState);
-    const picked = list.find((c) => c.code === $defcur.value);
-    return picked || list.find((c) => c.code === "USD") || list[0];
-  }
-
-  // One "149.916 -> 150.000" line per currency card, so the effect of the
-  // separators and the rounding unit is visible while editing them.
-  function currencySample(cur) {
-    const t = clampCents($cents.value);
-    const nextTen = $nextten.checked;
-    const digit = clampDigit($tendigit.value);
-    const min = clampMin($tenmin.value);
-    const sample = cur.step > 1 ? cur.step * 149.916 : 1.99;
-    const r = roundUp(sample, cur.step, t, nextTen, digit, min);
-    const from = withCurMark(fmtCur(sample, cur, curDecimals(cur, sample)), cur);
-    if (r === null) return from + " stays as written";
-    return from + " → " + withCurMark(fmtCur(r, cur, curDecimals(cur, r)), cur);
-  }
-
-  function buildDefCur() {
-    const list = sanitizeCurrencies(curState);
-    const prev = $defcur.value;
-    $defcur.textContent = "";
-    const auto = document.createElement("option");
-    auto.value = "auto";
-    auto.textContent = "Auto (detect from page)";
-    $defcur.appendChild(auto);
-    list.forEach((c) => {
+  function stepSelect(value, onChange) {
+    const sel = document.createElement("select");
+    const opts = STEP_OPTIONS.slice();
+    if (!opts.includes(value)) opts.push(value);
+    opts.sort((a, b) => a - b).forEach((v) => {
       const o = document.createElement("option");
-      o.value = c.code;
-      o.textContent = c.name + " (" + c.code + ")";
-      $defcur.appendChild(o);
+      o.value = String(v);
+      o.textContent = fmtAmount(v, 0);
+      sel.appendChild(o);
     });
-    const want = prev || "auto";
-    $defcur.value = list.some((c) => c.code === want) ? want : "auto";
+    sel.value = String(value);
+    sel.addEventListener("change", () => onChange(clampStep(sel.value)));
+    return sel;
   }
 
-  function buildCurrencies() {
-    $currencies.textContent = "";
-    curState.forEach((cur, i) => {
-      const card = document.createElement("div");
-      card.className = "curcard";
+  // "Prices at or above 10.000 round to the nearest 1.000", one row per rule.
+  function buildStepRules() {
+    $steprules.textContent = "";
+    stepRulesState.forEach((rule, i) => {
+      const row = document.createElement("div");
+      row.className = "rulerow";
 
-      const head = document.createElement("div");
-      head.className = "curhead";
-      const title = document.createElement("span");
-      title.className = "curname";
-      title.textContent = (cur.name || "New currency") + " (" + (cur.code || "???") + ")";
+      const lead = document.createElement("span");
+      lead.textContent = "At or above";
+      const min = document.createElement("input");
+      min.type = "number";
+      min.min = "0";
+      min.step = "1";
+      min.value = String(rule.min);
+      min.style.width = "110px";
+      min.addEventListener("input", () => { rule.min = clampThreshold(min.value); save(); });
+
+      const mid = document.createElement("span");
+      mid.textContent = "round to the nearest";
+      const step = stepSelect(rule.step, (v) => { rule.step = v; save(); });
+      step.style.width = "110px";
+
       const del = document.createElement("button");
       del.type = "button";
       del.className = "smallbtn danger";
       del.textContent = "Remove";
       del.addEventListener("click", () => {
-        curState.splice(i, 1);
-        if (!curState.length) curState = DEFAULTS.currencies.map((c) => ({ ...c }));
-        buildCurrencies();
-        buildDefCur();
+        stepRulesState.splice(i, 1);
+        buildStepRules();
         save();
       });
-      head.appendChild(title);
-      head.appendChild(del);
-      card.appendChild(head);
 
-      const grid = document.createElement("div");
-      grid.className = "curgrid";
-      const sample = document.createElement("div");
-      sample.className = "cursample";
-
-      const refresh = (persist) => {
-        title.textContent = (cur.name || "New currency") + " (" + (cur.code || "???") + ")";
-        sample.textContent = validCode(cur.code)
-          ? currencySample(sanitizeCurrencies([cur])[0])
-          : "Enter a three-letter code (USD, COP) for this currency to take effect.";
-        if (persist !== false) save();
-      };
-
-      const addField = (labelText, input, title2) => {
-        const l = document.createElement("label");
-        l.textContent = labelText;
-        if (title2) l.title = title2;
-        const id = "cur-" + i + "-" + labelText.replace(/\W+/g, "");
-        input.id = id;
-        l.setAttribute("for", id);
-        grid.appendChild(l);
-        grid.appendChild(input);
-      };
-
-      const name = document.createElement("input");
-      name.type = "text";
-      name.value = cur.name || "";
-      name.addEventListener("input", () => { cur.name = name.value; refresh(); });
-      addField("Name", name);
-
-      const code = document.createElement("input");
-      code.type = "text";
-      code.value = cur.code || "";
-      code.maxLength = 3;
-      code.addEventListener("input", () => {
-        cur.code = code.value.toUpperCase();
-        code.value = cur.code;
-        code.style.borderColor = validCode(cur.code) ? "" : "#e0b4ae";
-        refresh();
-        buildDefCur();
-      });
-      addField("Code", code, "The three-letter ISO code, e.g. USD or COP. Also matched on the page.");
-
-      const sym = document.createElement("input");
-      sym.type = "text";
-      sym.value = cur.symbol || "";
-      sym.maxLength = 8;
-      sym.addEventListener("input", () => { cur.symbol = sym.value; refresh(); });
-      addField("Symbol", sym, "How the currency is written on the page, e.g. $ or COL$.");
-
-      const thou = document.createElement("select");
-      THOUSANDS_OPTIONS.forEach(([v, label]) => {
-        const o = document.createElement("option");
-        o.value = v;
-        o.textContent = label;
-        thou.appendChild(o);
-      });
-      thou.value = cur.thousands;
-      thou.addEventListener("change", () => { cur.thousands = thou.value; refresh(); });
-      addField("Thousands separator", thou);
-
-      const dec = document.createElement("select");
-      DECIMAL_OPTIONS.forEach(([v, label]) => {
-        const o = document.createElement("option");
-        o.value = v;
-        o.textContent = label;
-        dec.appendChild(o);
-      });
-      dec.value = cur.decimal;
-      dec.addEventListener("change", () => { cur.decimal = dec.value; refresh(); });
-      addField("Decimal separator", dec);
-
-      const step = document.createElement("select");
-      const steps = STEP_OPTIONS.slice();
-      if (!steps.some(([v]) => v === cur.step)) steps.push([cur.step, String(cur.step)]);
-      steps.forEach(([v, label]) => {
-        const o = document.createElement("option");
-        o.value = String(v);
-        o.textContent = label;
-        step.appendChild(o);
-      });
-      step.value = String(cur.step);
-      step.addEventListener("change", () => { cur.step = Number(step.value) || 1; refresh(); });
-      addField("Rounds to units of", step, "The amount that counts as one unit: 1 for the dollar, 1.000 for the Colombian peso.");
-
-      card.appendChild(grid);
-      card.appendChild(sample);
-      $currencies.appendChild(card);
-      refresh(false);
+      row.appendChild(lead);
+      row.appendChild(min);
+      row.appendChild(mid);
+      row.appendChild(step);
+      row.appendChild(del);
+      $steprules.appendChild(row);
     });
+    if (!stepRulesState.length) {
+      const empty = document.createElement("div");
+      empty.className = "hint";
+      empty.textContent = "No rules: every price rounds in the default unit unless a site says otherwise.";
+      $steprules.appendChild(empty);
+    }
   }
 
   function renderExample() {
@@ -478,19 +360,16 @@
     const min = clampMin($tenmin.value);
     // Smallest whole price ending in the digit at or above the minimum.
     const atMin = min + ((digit - (min % 10)) + 10) % 10;
-    const cur = defaultCurrencyForExample();
-    const unit = cur.step > 0 ? cur.step : 1;
+    const unit = clampStep($defstep.value);
     const samples = [1.99, 2.5, 2.01, atMin].map((v) => v * unit);
     if (nextTen && digit < min) samples.push(digit * unit); // below-minimum case
     const parts = samples.map((v) => {
       const r = roundUp(v, unit, t, nextTen, digit, min);
-      const from = withCurMark(fmtCur(v, cur, curDecimals(cur, v)), cur);
-      const shown = r === null
-        ? "stays " + from
-        : withCurMark(fmtCur(r, cur, curDecimals(cur, r)), cur);
+      const from = fmtAmount(v, stepDecimals(unit, v));
+      const shown = r === null ? "stays " + from : fmtAmount(r, stepDecimals(unit, r));
       return from + " \u2192 " + shown;
     });
-    $example.textContent = "In " + cur.name + " (" + cur.code + ") at " + t +
+    $example.textContent = "Rounding to the nearest " + fmtAmount(unit, 0) + " at " + t +
       "\u00A2: " + parts.join(" \u00A0\u00B7\u00A0 ");
   }
 
@@ -657,8 +536,8 @@
       priceNextTen: $nextten.checked,
       priceNextTenDigit: clampDigit($tendigit.value),
       priceNextTenMin: clampMin($tenmin.value),
-      currencies: sanitizeCurrencies(curState),
-      defaultCurrency: $defcur.value || "auto",
+      priceStep: clampStep($defstep.value),
+      priceStepRules: sanitizeStepRules(stepRulesState),
       logSamples: $logsamples.checked,
       shareData: $sharedata.checked,
       maxOrderOfMagnitude: clampNum($oom.value, 1, 12, 6),
@@ -688,11 +567,16 @@
     $nextten.checked = !!s.priceNextTen;
     $tendigit.value = clampDigit(s.priceNextTenDigit);
     $tenmin.value = clampMin(s.priceNextTenMin);
-    curState = sanitizeCurrencies(s.currencies);
-    buildDefCur();
-    $defcur.value = s.defaultCurrency && s.defaultCurrency !== "auto" &&
-      curState.some((c) => c.code === s.defaultCurrency) ? s.defaultCurrency : "auto";
-    buildCurrencies();
+    const defStep = clampStep(s.priceStep);
+    if (![...$defstep.options].some((o) => o.value === String(defStep))) {
+      const extra = document.createElement("option"); // a unit typed in by hand
+      extra.value = String(defStep);
+      extra.textContent = String(defStep);
+      $defstep.appendChild(extra);
+    }
+    $defstep.value = String(defStep);
+    stepRulesState = sanitizeStepRules(s.priceStepRules);
+    buildStepRules();
     $logsamples.checked = !!s.logSamples;
     $sharedata.checked = !!s.shareData;
     updateNudge();
@@ -760,11 +644,11 @@
   $tendigit.addEventListener("input", renderExample);
   $tenmin.addEventListener("change", save);
   $tenmin.addEventListener("input", renderExample);
-  $defcur.addEventListener("change", () => { save(); buildCurrencies(); });
-  $curadd.addEventListener("click", () => {
-    curState.push({ code: "", name: "", symbol: "$", thousands: ".", decimal: ",", step: 1000 });
-    buildCurrencies();
-    buildDefCur();
+  $defstep.addEventListener("change", save);
+  $ruleadd.addEventListener("click", () => {
+    stepRulesState.push({ min: 10000, step: 1000 });
+    buildStepRules();
+    save();
   });
 
   // ---- Training data: counts, export, clear ----

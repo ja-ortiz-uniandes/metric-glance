@@ -85,33 +85,16 @@
       cursor: pointer;
     }
     .actionbtn:hover { background: #e9ebf0; }
-    .curcard {
-      border: 1px solid #e7e9ee;
-      border-radius: 8px;
-      padding: 10px;
-      margin-bottom: 8px;
-    }
-    .curcard .curhead {
+    .rulerow {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 8px;
-    }
-    .curcard .curname { font-weight: 600; font-size: 14px; }
-    .curgrid {
-      display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 6px 10px;
-      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
       font-size: 13px;
       color: #5a6172;
+      padding: 6px 0;
     }
-    .curgrid input[type="text"], .curgrid input[type="number"], .curgrid select {
-      width: 100%;
-      font-size: 14px;
-    }
-    .curcard .cursample { margin-top: 8px; font-size: 12.5px; color: #5a6172; }
+    .rulerow input[type="number"], .rulerow select { font-size: 14px; }
     .smallbtn {
       font-size: 12.5px;
       padding: 4px 8px;
@@ -206,19 +189,30 @@
   <div class="example" id="example"></div>
   <div id="status"></div>
 
-  <h1 style="margin-top:22px">Currencies</h1>
-  <p class="hint">Rounding works in whole units of a currency. One unit is $1 for the dollar but 1.000 for the Colombian peso, since a single peso is not a meaningful amount, so COL&nbsp;$&nbsp;149.916 rounds to COL&nbsp;$&nbsp;150.000. Each currency also says how its prices are written.</p>
+  <h1 style="margin-top:22px">Rounding unit</h1>
+  <p class="hint">How much a price is rounded to. It is 1 for a dollar, but 1.000 for a Colombian peso, where a single peso is not a meaningful amount, so COL&nbsp;$&nbsp;149.916 becomes COL&nbsp;$&nbsp;150.000. Nothing is configured per currency: the thousands separator is read off the price itself.</p>
 
   <div class="row">
-    <label for="defcur">Default currency
-      <span class="sub" title="Which currency to assume when the page does not say. Auto reads the page: its priceCurrency data, the site address, the page language, and how the digits are grouped.">Auto works it out from the page.</span>
+    <label for="defstep">Default rounding unit
+      <span class="sub" title="Used when the site has no setting of its own, the price carries no currency mark, and no rule below matches.">What a price rounds to when nothing more specific applies.</span>
     </label>
-    <select id="defcur"></select>
+    <select id="defstep">
+      <option value="1">1</option>
+      <option value="10">10</option>
+      <option value="100">100</option>
+      <option value="1000">1.000</option>
+      <option value="10000">10.000</option>
+      <option value="100000">100.000</option>
+    </select>
   </div>
 
   <div class="row" style="display:block; border-bottom:none">
-    <div id="currencies" style="margin-top:8px"></div>
-    <button id="cur-add" class="actionbtn">Add currency</button>
+    <label>Bigger prices, bigger units
+      <span class="hint" title="A price at or above the threshold rounds in the unit next to it. Where several thresholds match, the highest one wins.">Big numbers usually mean a currency quoted in thousands, so they round in thousands.</span>
+    </label>
+    <div id="steprules" style="margin-top:6px"></div>
+    <button id="rule-add" class="actionbtn" style="margin-top:8px">Add rule</button>
+    <p class="hint" style="margin-top:8px">Prices marked in a currency that is quoted in thousands (COP, CLP, IDR, PYG, VND), or on a site that prices in one, always round in thousands whatever the rules say. A price marked in another currency, like US$, keeps that currency's unit. Hover a rounded price, or use the Smart Picker, to set the unit for one site by hand.</p>
   </div>
 
   <h1 style="margin-top:22px">Number formatting</h1>

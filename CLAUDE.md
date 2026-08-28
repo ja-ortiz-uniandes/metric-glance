@@ -10,7 +10,7 @@ The extension also ships an off-device data pipeline: it logs labeled training e
 
 - Repo: `github.com/ja-ortiz-uniandes/metric-glance`, branch `main`
 - Local path: `C:\Users\joral\Git projects\metric-glance` (Windows; LF->CRLF git warnings are harmless)
-- Current version: `0.46.1`
+- Current version: `0.48.0`
 - Contact: `metric.glance@proton.me`
 - No build step. Plain JavaScript throughout.
 - Outstanding work lives in `TODO.md` at repo root (encrypted with git-age; repo is public).
@@ -122,22 +122,23 @@ POST `{ install_id, records: [...] }` with headers `X-MG-Ts` (epoch seconds) and
 
 ---
 
-## Currencies and price rounding
+## Price rounding units
 
-Price rounding is currency-aware. `settings.currencies` (editable in Preferences, defaults in `DEFAULT_SETTINGS`) lists per currency: the three-letter code, a display name, the symbol as pages write it, the thousands separator, the decimal separator, and `step`, the amount that counts as one unit for rounding. `step` is 1 for the dollar and 1000 for the Colombian peso, because one peso is not a meaningful amount, so rounding runs in units of `step`: COP 149.916 rounds to COP 150.000 the same way $1.99 rounds to $2. The cents threshold and the next-ten rule are read in hundredths of a unit, so one setting covers every currency.
+Rounding is expressed as a **step**: the amount that counts as one unit. It is 1 for a dollar, but 1000 for a Colombian peso, where a single peso is not a meaningful amount, so COP 149.916 rounds to COP 150.000 the way $1.99 rounds to $2. The cents threshold and the next-ten rule are read in hundredths of a step, so one setting covers every currency. Note the consequence: with a step of 1000 the default threshold of 60 means "within 600 of the next thousand".
 
-Which currency a price is in is resolved by `currencyFor()` and `pageCurrency()` in `converter.js`, in this order:
+Nothing is configured per currency. How the digits are grouped is read off the price itself (a three-digit tail after a separator is grouping, since no price has three-digit cents), and the same separator is written back. A price with no separator of its own reuses the first grouping separator seen on the page (`pageGroupSep`), then `settings.thousandsSeparator`.
 
-1. an explicit mark on the price itself (`US$`, `COL$`, `COP`), since the page is being specific
-2. the user's choice for this host, stored as `rules.hosts[host].currency` (set from the hover panel's Currency section or the Smart Picker's currency menu, and applied to every price on the site)
-3. the page's own `priceCurrency` (microdata, JSON-LD, or a meta tag)
-4. `settings.defaultCurrency` when it is not `"auto"`
-5. the site's TLD or `<html lang>` region, via `REGION_CURRENCY`
-6. the digit grouping, as a last hint: a three-digit tail after a separator ("149.916") means that separator groups thousands
+`stepFor()` in `converter.js` resolves the step for one price, in order:
 
-Amounts are parsed structurally rather than by locale: the money regex only ever takes a one or two digit fraction, so a three-digit tail is always grouping and "149.916" can never be read as 149 and 91.6 cents.
+1. the user's choice for this site, stored as `rules.hosts[host].priceStep` (set from the hover panel's "Round to the nearest" section or the Smart Picker's menu, applied to every price on the host)
+2. an explicit currency mark on the price: `COL$`/`COP` are quoted in thousands (`CODE_STEP`), `US$` is not, so a dollar price on a peso site still rounds in ones
+3. a page that prices in a thousands currency, from `priceCurrency` markup (microdata, JSON-LD, meta) or the TLD / `<html lang>` region via `REGION_CURRENCY`
+4. `settings.priceStepRules`, the magnitude rules: prices at or above `min` round to the nearest `step`, highest matching threshold wins. Default: `[{ min: 10000, step: 1000 }]`
+5. `settings.priceStep`, the default (1)
 
-A currency picked by the user is logged as a training example (`interpretation:price-<CODE>`, with `unit_id` = `price:<CODE>`), so the eventual classifier sees which currency a site prices in alongside the url, lang and context fields it already gets. No new record field was added.
+A page that prices in a currency quoted in ones only acts as the final fallback, so the magnitude rules still apply on, say, a US site.
+
+A step picked by the user is logged as a training example (`interpretation:price-step<N>`, with `unit_id` = `price:step<N>`), so the eventual classifier sees how a site is priced alongside the url, lang and context fields it already gets. No new record field was added.
 
 ---
 

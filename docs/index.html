@@ -56,28 +56,29 @@
       ($2.01&rarr;$3 only at 99¢). Reload after changing it.</p>
   </div>
 
-  <h2>2b. Currencies whose unit is a thousand (Colombian peso)</h2>
+  <h2>2b. Prices quoted in thousands (Colombian peso)</h2>
   <div class="card">
     Marked as pesos: COL $ 149.916, COP 1.999.500, and 89.900 COP.
     Marked as dollars on the same page: US$1.99.
     <p class="note">A peso price rounds to whole thousands, because one peso is
       not a meaningful amount: COL&nbsp;$&nbsp;149.916&rarr;COL&nbsp;$&nbsp;150.000.
-      Note the dot is the thousands separator here, so 149.916 is a hundred and
-      fifty thousand pesos, not a hundred and fifty. US$1.99&rarr;US$2 still
-      rounds in dollars, since the mark names its own currency. Hover any of
-      them to switch the currency for the whole site; the Smart Picker has the
-      same menu under "Treat as price".</p>
+      The dot here is the thousands separator, so 149.916 is a hundred and fifty
+      thousand pesos, and the same separator is written back.
+      US$1.99&rarr;US$2 still rounds in ones, since that mark names a currency
+      quoted in ones. Hover any of them to set the rounding unit for the whole
+      site; the Smart Picker has the same menu under "Treat as price".</p>
   </div>
 
   <h2>2c. Bare "$" with no currency marker</h2>
   <div class="card">
-    A bare price: $149.916 and another: $12,99.
-    <p class="note">With nothing else to go on, the digits decide: a three-digit
-      group after a dot ($149.916) is read as thousands, so it rounds as pesos
-      to $150.000. On a real Colombian shop the page's own priceCurrency data,
-      the site address (.co) or the page language (es-CO) settles it first, and
-      Preferences has a default currency for the rest. $12,99 has a two-digit
-      tail, so that one is read as cents and rounds to $13.</p>
+    A bare price: $149.916, a smaller one: $12,99, and a big one: $12,500.
+    <p class="note">With no mark to go on, the size of the number decides: at or
+      above 10.000 a price rounds to the nearest 1.000 (the threshold and the
+      unit are both editable in Preferences), so $149.916&rarr;$150.000 and
+      $12,500&rarr;$13,000. $12,99 has a two-digit tail, so it is read as cents
+      and rounds to $13. On a real Colombian shop the page's own priceCurrency
+      data, the site address (.co) or the page language (es-CO) settles the unit
+      before any of that.</p>
   </div>
 
   <h2>3. These should NOT convert (context traps)</h2>

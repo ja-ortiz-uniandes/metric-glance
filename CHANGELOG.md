@@ -250,3 +250,25 @@ A batch of correctness fixes from a targeted bug hunt across the detection engin
 No change to what data is collected or how it is shared.
 
 **Full Changelog**: https://github.com/ja-ortiz-uniandes/metric-glance/compare/v0.47.3...v0.47.4
+
+## v0.48.0
+
+Price rounding is no longer tied to the dollar. It now rounds in whatever unit a price is actually quoted in, which is what makes Colombian peso prices come out right: COL $ 149.916 becomes COL $ 150.000, instead of being nudged by a few pesos or left alone.
+
+### Rounding units
+
+- Rounding happens in a unit you can set: 1 for a dollar, 1.000 for a peso, where a single peso is not a meaningful amount. The existing cents threshold and next-ten rule are read in hundredths of that unit, so one setting still covers every currency.
+- The unit is worked out per price: an explicit mark on the price first (COL$ and COP are quoted in thousands, US$ is not, so a dollar price on a Colombian site still rounds in ones), then a page that says it prices in such a currency (priceCurrency data, a .co address, an es-CO page language), then the size of the number, then the default.
+- New in Preferences: a default rounding unit, and a list of "prices at or above X round to the nearest Y" rules, shipping with one rule (at or above 10.000, round to the nearest 1.000).
+- Worth knowing: with a unit of 1.000 the default 60 threshold means "within 600 of the next thousand", so on a site where that rule applies a price of 10.500 rounds to 11.000. Raise the threshold in the rule, or lower the cents setting, if that is not what you want.
+- Hover a rounded price to set the unit for the whole site, with a preview of what each choice does, or use the same menu in the Smart Picker under "Treat as price". Ctrl+Z undoes the change.
+
+### Reading prices
+
+- Thousands and decimal separators are read off the price itself rather than assumed: a three-digit tail after a dot, comma or space is grouping, because no price has three-digit cents. So 149.916 is a hundred and fifty thousand, while 149,99 and 1.234,56 keep their fractions.
+- The rounded value is written back with that same separator, and keeps the page's own spacing around the currency mark, so COL$ 42.750 becomes COL$ 43.000 rather than COL$43.000.
+- A currency code written in front of or behind the amount ("COP 149.916", "149.916 COP") is now recognized as a price.
+
+No change to what data is collected or how it is shared. A rounding unit you pick is recorded in the field that already stored which unit you picked for a conversion.
+
+**Full Changelog**: https://github.com/ja-ortiz-uniandes/metric-glance/compare/v0.47.4...v0.48.0
