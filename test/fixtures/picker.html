@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Smart Picker targets</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 40px; }
+    /* Amazon's pattern: a transparent submit input stretched over the whole
+       button takes every point, so hit-testing lands on a control that holds no
+       text of its own. Picking has to climb out of it. */
+    .box { position: relative; display: inline-block; border: 1px solid #999; padding: 14px 18px; margin-right: 12px; }
+    .hit { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Picker targets</h1>
+
+  <!-- Nothing here auto-converts, which is the situation Smart Picker is for.
+       "36 x 18" carries no unit, so the detector proposes nothing and the user
+       gets the pick-the-words fallback. -->
+  <span class="box" id="unitless">
+    <input type="submit" class="hit" aria-labelledby="u0" />
+    <span id="u0" aria-hidden="true"> 36 x 18 </span>
+  </span>
+
+  <!-- $12.30 is 70 cents short of the next dollar, past the 60-cent default, so
+       the page scan declines to round it. The picker offers it anyway, and
+       choosing it is the user forcing the round. -->
+  <span class="box" id="pricey">
+    <input type="submit" class="hit" aria-labelledby="p0" />
+    <span id="p0" aria-hidden="true"> $12.30 </span>
+  </span>
+
+  <p id="plain">Plain paragraph text with nothing to convert.</p>
+</body>
+</html>

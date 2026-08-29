@@ -1,0 +1,15 @@
+{
+  "name": "metric-glance-test",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Browser tests for the Metric Glance content script. Never shipped in the add-on.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report",
+    "setup": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}

@@ -10,7 +10,7 @@ The extension also ships an off-device data pipeline: it logs labeled training e
 
 - Repo: `github.com/ja-ortiz-uniandes/metric-glance`, branch `main`
 - Local path: `C:\Users\joral\Git projects\metric-glance` (Windows; LF->CRLF git warnings are harmless)
-- Current version: `0.48.0`
+- Current version: `0.48.1`
 - Contact: `metric.glance@proton.me`
 - No build step. Plain JavaScript throughout.
 - Outstanding work lives in `TODO.md` at repo root (encrypted with git-age; repo is public).
@@ -59,6 +59,11 @@ collect/            Backend. Never shipped in the add-on.
   schema.sql        D1 table definition
   wrangler.toml     Cloudflare config
   package.json      npm scripts (login, deploy, tail, count, etc.)
+
+test/               Playwright tests for converter.js. Never shipped in the add-on.
+  helpers.js        Fixture loading, the window.browser stub, visible-text readers
+  fixtures/         Minimal pages reproducing the markup that broke
+  specs/            detect, split-price, picker
 
 docs/               Live demo/test page published via GitHub Pages from /docs
 ```
@@ -157,6 +162,33 @@ A step picked by the user is logged as a training example (`interpretation:price
 1. Go to `about:debugging#/runtime/this-firefox`
 2. Click "Load Temporary Add-on" and select `extension/manifest.json`
 3. On install, `welcome.html` opens automatically as a tab
+
+### Automated tests
+
+`test/` holds Playwright tests for the content script, run by
+`.github/workflows/ci.yml` on every push to `main` and every pull request.
+
+```bash
+cd test
+npm ci
+npx playwright install chromium   # once per machine
+npm test
+```
+
+They do not load the packaged add-on. `converter.js` ends with
+`} else { start(); }`, so with no extension API present it runs on default
+settings against any page, and a test injects it into a fixture with
+`page.addScriptTag`. Settings and Smart Picker go through a small
+`window.browser` stub in `test/helpers.js`. Chromium only, because it is real
+layout that matters here (`elementFromPoint`, `getBoundingClientRect`), and
+neither engine can load an MV2 extension under Playwright anyway.
+
+**Covered:** detection, DOM rewriting, price rounding, Smart Picker.
+**Not covered, still manual in Firefox:** the manifest, `background.js`,
+`mg-uploader.js`, `mg-privacy-watch.js`, the options and welcome pages.
+
+When fixing a detection or picker bug, add a fixture with the real markup that
+broke and check the test fails before the fix. See `test/README.md`.
 
 ### Testing the uploader manually
 
@@ -268,7 +300,7 @@ When enough labeled data exists (hundreds to low thousands of corrected examples
 - **Non-persistent background page** (`"persistent": false`). The background page can be unloaded between events. Do not rely on in-memory state across alarm firings.
 - **`browser.storage.local` has no transactions**. The uploader uses a race-safe set-difference pattern: re-read fresh after server ack, remove only confirmed keys. Never write back a stale snapshot.
 - **`window.close()` does not work** for tabs opened via `tabs.create`. Use `tabs.query({ active: true, currentWindow: true })` + `tabs.remove()` instead, or just show a "you can close this" message.
-- The `collect/` directory has its own `.gitignore` that re-includes `package.json` and `package-lock.json` (the root `.gitignore` would otherwise exclude them).
+- The `collect/` and `test/` directories each have their own `.gitignore` that re-includes `package.json` and `package-lock.json` (the root `.gitignore` would otherwise exclude them, since the extension itself has no build step).
 - LF->CRLF git warnings on Windows are harmless; do not add `.gitattributes` to suppress them without checking the team's preference first.
 - **When pinning or bumping a GitHub Action version (`uses: owner/action@vX`), verify that exact tag exists in the action's own repo first** (e.g. `gh api repos/<owner>/<action>/tags`). Do not assume it follows the same rolling bare-major-tag convention as `actions/checkout`/`actions/setup-node` (both really do publish a floating `v7`). Some actions only ever tag full semver releases, no bare-major tag at all, and pinning to a guessed one fails the job instantly at run time, not at edit time. This is exactly how `astral-sh/setup-uv@v8` broke the 2026-08-15 scheduled maintenance run: `v8` was never a real tag for that action.
 

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Units baseline</title>
+</head>
+<body>
+  <!-- Baseline: the plain cases that must keep working. Each id is asserted
+       individually so a regression names the unit it broke. -->
+  <p id="miles">The trail is 12 miles long.</p>
+  <p id="feet">It climbs 1,200 feet.</p>
+  <p id="inches">The sign is 18 inches wide.</p>
+  <p id="pounds">Carrying 5 lbs of water.</p>
+  <p id="fahrenheit">It was 75 &deg;F at the top.</p>
+  <p id="dims">The box is 4 x 3 x 1 in.</p>
+
+  <!-- Boundaries that must NOT convert. "in" on its own is a preposition, and
+       the axis-letter lookahead must not start matching bare words. -->
+  <p id="preposition">There are 3 in the box.</p>
+  <p id="index">She read 4 index cards.</p>
+  <p id="wisconsin">It hit 90 degrees in Wisconsin.</p>
+
+  <!-- Spacing around a conversion is the page's, not ours. -->
+  <p id="spacing">Exactly (18 inches) wide, or 18 inches: the label.</p>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# Installed tooling and run artifacts: large, regenerated, never committed.
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# The repo-root .gitignore ignores package.json and package-lock.json, because
+# the extension itself has no build step. In THIS folder both must be tracked:
+# the lockfile is what `npm ci` reads in CI. Deeper .gitignore rules win.
+!package.json
+!package-lock.json

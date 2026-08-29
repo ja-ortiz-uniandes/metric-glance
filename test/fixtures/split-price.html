@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Split prices</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 40px; }
+    /* The offscreen copy retailers keep for screen readers: the reliable value,
+       and the one the extension must never convert in place. */
+    .a-offscreen {
+      position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip: rect(0 0 0 0); white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <!-- Baseline: the wrapper holds nothing but the price fragments. -->
+  <p id="tight">Price:
+    <span class="a-price"><span class="a-offscreen">$12.77</span><span aria-hidden="true"><span>$</span><span>12</span><span>77</span></span></span>
+    today.</p>
+
+  <!-- The regression: the successful wrapper itself holds the spaces around the
+       price. Wiping the wrapper used to delete them, giving "Now$13each". -->
+  <p id="spaced">Now <span class="a-price"><span class="a-offscreen">$12.77</span> <span>$</span><span>12</span><span>77</span> </span>each.</p>
+
+  <!-- A whole price needs no rounding and must be left completely alone. -->
+  <p id="whole">Also <span class="a-price"><span class="a-offscreen">$13.00</span> <span>$</span><span>13</span><span>00</span> </span>each.</p>
+
+  <!-- Contiguous price in one text node: handled by the text pass, not the
+       split-price pass. Here to prove the split fix did not disturb it. -->
+  <p id="contiguous">Just $1.99 for one.</p>
+</body>
+</html>

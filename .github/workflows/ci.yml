@@ -1,0 +1,57 @@
+name: Tests
+
+# Content-script tests, run on every push to main and every pull request.
+#
+# Deliberately separate from release.yml: a browser test that goes flaky must
+# never be able to block or alter a real AMO submission. Releases stay gated on
+# web-ext lint alone, exactly as before.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "extension/**"
+      - "test/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "extension/**"
+      - "test/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+jobs:
+  content-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: test/package-lock.json
+
+      - name: Install test tooling
+        working-directory: test
+        run: npm ci
+
+      # Only Chromium: these tests inject converter.js into a fixture page
+      # rather than loading the packaged add-on, so the engine just needs real
+      # layout and hit-testing. Firefox coverage of the packaged .xpi stays a
+      # manual step.
+      - name: Install Chromium
+        working-directory: test
+        run: npx playwright install --with-deps chromium
+
+      - name: Run tests
+        working-directory: test
+        run: npx playwright test
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: test/playwright-report/
+          retention-days: 7
