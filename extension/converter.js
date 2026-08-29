@@ -625,7 +625,12 @@
 
   const NUM = "(-?\\d{1,3}(?:,\\d{3})+|-?\\d+)(?:\\.(\\d+))?(?:\\s+(\\d+)\\s*/\\s*(\\d+))?";
   const UNIT_ALT = UNITS.map((u) => u.pattern).join("|");
-  const UNIT_RE = new RegExp("(?<![\\w])" + NUM + "\\s*(" + UNIT_ALT + ")(?![\\w°])", "gi");
+  // Retail dimension notation puts an axis letter straight after the unit mark
+  // ("36\"W x 18\"H", "36\"L x 18\"W x 4\"D"), which a plain word boundary
+  // rejects. The letter is only looked at, never consumed, so it stays on the
+  // page and the result reads "91.4 cm W x 45.7 cm H".
+  const AXIS_TAIL = "(?:(?![\\w°])|(?=[WHDL](?![A-Za-z0-9])))";
+  const UNIT_RE = new RegExp("(?<![\\w])" + NUM + "\\s*(" + UNIT_ALT + ")" + AXIS_TAIL, "gi");
   const UNIT_RES = UNITS.map((u) => ({ unit: u, re: new RegExp("^(?:" + u.pattern + ")$", "i") }));
 
   // Dimension lists sharing one trailing unit. With ×/x separators we allow
@@ -2031,7 +2036,9 @@
     // Keep the original DOM only when it holds real markup (links, bold, etc.).
     // Plain-text originals are rebuilt from data-original on revert and in the
     // panel, so retaining a fragment for them only wastes memory.
-    if (frag.querySelector && frag.querySelector("*")) {
+    // c.plain: the caller knows the original carries no meaning worth keeping
+    // (a split price is only nested spans), so revert rebuilds it from text.
+    if (!c.plain && frag.querySelector && frag.querySelector("*")) {
       span.classList.add("mg-rich");
       originalContent.set(span, frag);
     }
@@ -2204,7 +2211,15 @@
     }
     if (visibleNodes.length < 2) return false; // not split; the text pass handles it
 
-    const visibleStr = visibleNodes.map((t) => t.nodeValue).join("");
+    // Character map over the visible parts, so only the price's own characters
+    // are replaced and everything else the wrapper holds (a leading space, a
+    // trailing bracket) is left exactly as the page wrote it.
+    let visibleStr = "";
+    const map = [];
+    for (const tn of visibleNodes) {
+      const v = tn.nodeValue || "";
+      for (let i = 0; i < v.length; i++) { visibleStr += v[i]; map.push([tn, i]); }
+    }
     if (/[A-Za-z]/.test(visibleStr)) return false; // wrapper holds words, too big
 
     let info = full;
@@ -2227,17 +2242,16 @@
     });
     if (!disp || disp === priceStr) return false;
 
-    while (wrapper.firstChild) wrapper.removeChild(wrapper.firstChild);
-    const span = document.createElement("span");
-    span.className = MARK_CLASS;
-    span.textContent = disp;
-    span.setAttribute("data-original", priceStr);
-    span.setAttribute("data-kind", "price");
-    span.setAttribute("tabindex", "0");
-    span.setAttribute("role", "button");
-    span.setAttribute("aria-label", `${disp}, originally ${priceStr}, activate to review`);
-    wrapper.appendChild(span);
-    wireHover();
+    // Replace the price itself and nothing else: the whitespace the wrapper
+    // holds around it is the page's own spacing, so it stays put. (Whitespace
+    // in its own text node is already outside `map`; this handles the rest,
+    // e.g. a node that reads "$ " or " $12".)
+    const start = visibleStr.search(/\S/);
+    if (start < 0) return false;
+    let end = visibleStr.length;
+    while (end > start && /\s/.test(visibleStr[end - 1])) end--;
+    if (end <= start || !map[start] || !map[end - 1]) return false;
+    replaceRange(map, { start, end, kind: "price", full: priceStr, display: disp, plain: true });
     return true;
   }
 
@@ -2861,22 +2875,27 @@
       addLine("mg-pop-head", "Round to the nearest:");
       const chosen = siteStep();
       const detected = stepFor({ ...c, step: null });
-      const stepRow = (value, name, current) => {
+      // Each row previews the value the page would actually show for that
+      // unit, which is the price itself when it is too far from the next unit
+      // to be rounded at all.
+      const previewStep = (value) => {
         const r = roundedPriceValue(c.value, c.forced, value);
-        return optionRow({
-          id: "step" + value, name, current,
-          info: "Rounds each price up to the next " + stepLabel(value, c) +
-            ", when it is within the threshold set in Preferences.",
-          preview: r === null ? "no change" : withMark(fmtMoney(r, c, moneyDecimals(value, r)), c),
-          onClick: () => { applySiteStep(value === detected && !chosen ? null : value, span); hidePanel(); },
-        });
+        const shown = r === null ? c.value : r;
+        return withMark(fmtMoney(shown, c, moneyDecimals(value, shown)), c);
       };
+      const stepRow = (value, name, current) => optionRow({
+        id: "step" + value, name, current,
+        info: "Rounds each price up to the next " + stepLabel(value, c) +
+          ", when it is within the threshold set in Preferences.",
+        preview: previewStep(value),
+        onClick: () => { applySiteStep(value === detected && !chosen ? null : value, span); hidePanel(); },
+      });
       if (chosen) {
         el.appendChild(optionRow({
           id: "auto", name: "Auto (" + stepLabel(detected, c) + " here)",
           info: "Work the rounding unit out from the page: an explicit currency mark, " +
             "the currency the site prices in, then the size of the price.",
-          current: false, preview: "detected",
+          current: false, preview: previewStep(detected),
           onClick: () => { applySiteStep(null, span); hidePanel(); },
         }));
       }
@@ -3775,14 +3794,58 @@
     if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
   }
 
+  // The first text node a pick would actually read here, or null. Cheap on a
+  // miss: the textContent test rejects an empty element before any walking.
+  function firstPickTextNode(el) {
+    if (!el || !/\S/.test(el.textContent || "")) return null;
+    let w;
+    try {
+      w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+        acceptNode(n) {
+          if (!n.nodeValue || !/\S/.test(n.nodeValue)) return NodeFilter.FILTER_REJECT;
+          return isSkippable(n) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+        },
+      });
+    } catch (e) { return null; }
+    return w.nextNode();
+  }
+  function hasArea(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+  // Climb until the element both holds readable text and takes up space. A
+  // control is often covered by an invisible hit layer that carries no text of
+  // its own (a retailer's transparent <input> over a size swatch, an <a>
+  // stretched to the full button), and pointing at one used to resolve to that
+  // layer, so the box the user was looking at yielded nothing. Climbing out of
+  // it means anywhere on a box that shows text picks that text.
+  function climbToText(el) {
+    let cur = el;
+    for (let hops = 0; cur && hops < 12; hops++) {
+      if (firstPickTextNode(cur) && hasArea(cur)) return cur;
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+
   // The element a point resolves to, climbed to its nearest block ancestor so
   // pointing at a tiny inline (e.g. a bare "12") still captures the whole
   // phrase ("12 lb") around it. Ignores our own UI.
+  //
+  // That block ancestor is usually the answer, and when it is this behaves
+  // exactly as it always did. It is only when the point lands on a hit layer
+  // holding no text that the climb takes over, and then the element it stops at
+  // is used as-is: it is the box the user was looking at, and widening again
+  // from there would jump to <body> whenever that box is an inline element.
   function pickTargetAt(x, y) {
     const raw = document.elementFromPoint(x, y);
     if (!raw) return null;
     if (raw.closest && raw.closest("[" + UI_ATTR + "]")) return null;
-    return blockAncestor(raw);
+    const base = blockAncestor(raw);
+    // No text anywhere above it: keep the old target so the click still
+    // explains itself ("No text there") instead of doing nothing.
+    return climbToText(base) || base;
   }
   function positionBox(rect) {
     if (!pickBox || !rect) return;

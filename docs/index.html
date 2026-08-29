@@ -11,6 +11,11 @@
     button { font: inherit; padding: 8px 12px; border: 1px solid #c6cad3; border-radius: 6px; background: #fff; cursor: pointer; }
     code { background: #eceef3; padding: 1px 5px; border-radius: 4px; }
     .note { color: #5a6172; font-size: 14px; }
+    /* Amazon-style swatch: a transparent submit input covers the whole box, so
+       a point over it resolves to a control that holds no text. */
+    .swatches { list-style: none; display: flex; gap: 8px; padding: 0; margin: 0; }
+    .swatch { position: relative; display: inline-block; border: 1px solid #c6cad3; border-radius: 6px; background: #fff; padding: 8px 10px; }
+    .swatch-hit { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -112,6 +117,24 @@
   <div class="card">
     <span class="a-price"><span class="a-offscreen">$12.77</span><span aria-hidden="true"><span>$</span><span>12</span><span>77</span></span></span>
     <span> &larr; should round to $13 even though it's split and has no visible decimal point.</span>
+    <p>Now <span class="a-price"><span class="a-offscreen">$12.77</span> <span>$</span><span>12</span><span>77</span> </span>each, down from before.</p>
+    <p class="note">The spaces the wrapper itself holds must survive the rewrite:
+      it should read "Now $13 each", never "Now$13each".</p>
+  </div>
+
+  <h2>4c. Size swatches with an axis letter, behind an invisible hit layer</h2>
+  <div class="card">
+    <ul class="swatches">
+      <li><span class="swatch"><input type="submit" class="swatch-hit" aria-labelledby="sw0" /><span id="sw0" aria-hidden="true"> 24"W x 12"H </span></span></li>
+      <li><span class="swatch"><input type="submit" class="swatch-hit" aria-labelledby="sw1" /><span id="sw1" aria-hidden="true"> 36"W x 18"H </span></span></li>
+      <li><span class="swatch"><input type="submit" class="swatch-hit" aria-labelledby="sw2" /><span id="sw2" aria-hidden="true"> 36"L x 18"W x 4"D </span></span></li>
+    </ul>
+    <p class="note">Two things at once, both taken from a real Amazon listing.
+      The axis letter after the inch mark must not stop detection, so these
+      should read "91.4 cm W x 45.7 cm H". And the transparent
+      <code>&lt;input&gt;</code> covering each swatch carries no text of its own,
+      so the Smart Picker has to climb out of it: pointing at a swatch must
+      outline it and offer its text, not report "no text there".</p>
   </div>
 
   <h2>5. Dynamically added content (tests the live observer)</h2>
