@@ -272,3 +272,28 @@ Price rounding is no longer tied to the dollar. It now rounds in whatever unit a
 No change to what data is collected or how it is shared. A rounding unit you pick is recorded in the field that already stored which unit you picked for a conversion.
 
 **Full Changelog**: https://github.com/ja-ortiz-uniandes/metric-glance/compare/v0.47.4...v0.48.0
+
+## v0.48.1
+
+Three fixes, all found on one real shopping page: a rounded price could lose the spacing around it, size swatches written the way retailers write them were never converted at all, and the Smart Picker could not pick text sitting behind an invisible click target.
+
+### Rounding respects the page around it
+
+- A price split across several elements (a currency symbol, the dollars and the cents in separate spans, the way large retailers build them) was rewritten by replacing everything inside the element that held it. Any spacing that element carried went with it, so "Now $12.77 each" could come back as "Now$13each". Only the price's own characters are replaced now, and whatever sits around it, spaces, punctuation or markup, is left exactly as the page wrote it.
+
+### Sizes written with an axis letter
+
+- Retail listings put the axis straight after the unit mark: 36"W x 18"H, or 36"L x 18"W x 4"D for a three-axis size. The letter made the value fail a word-boundary check, so nothing on those size buttons ever converted. They now read 91.4 cm W x 45.7 cm H, keeping the axis letter, which is the page's own text and not ours to remove. Lowercase (48"w x 24"h) works too.
+
+### Smart Picker reaches text behind a click target
+
+- Controls are often covered by an invisible layer that takes every click: a transparent submit input stretched over a whole button, or a link sized to the full box. Pointing at one resolved to that layer, which holds no text of its own, so a box that plainly showed text offered nothing to pick. The picker now climbs out of the layer to the element that actually holds the text, so anywhere on a box that shows text picks that text.
+
+### For maintainers
+
+- New Playwright test suite in `test/`, run by a new `ci.yml` workflow on every push to main and every pull request. It injects the content script into fixture pages built from the markup that actually broke, which is possible because the script falls back to default settings when no extension API is present. It covers detection, DOM rewriting, price rounding and the Smart Picker, in a real engine with real layout, since the picker is built on hit-testing that a fake DOM cannot provide. The manifest, the background page and the uploader are still verified by hand in Firefox. See `test/README.md`.
+- Each of the three fixes above was confirmed to be covered by reverting it and watching the suite fail.
+
+No change to what data is collected or how it is shared.
+
+**Full Changelog**: https://github.com/ja-ortiz-uniandes/metric-glance/compare/v0.48.0...v0.48.1
