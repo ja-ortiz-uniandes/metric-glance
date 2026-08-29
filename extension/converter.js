@@ -1120,9 +1120,12 @@
   function unitBaseInfo(entry) {
     if (!entry || typeof entry.toMetric !== "function" || typeof entry.fmt !== "function") return null;
     const saved = settings.decimalPlaces;
+    const savedExact = exactFormat;
     settings.decimalPlaces = 6; // parse at high precision
+    exactFormat = true;         // ...and keep shortDec out of it
     let s;
-    try { s = entry.fmt(entry.toMetric(1)); } finally { settings.decimalPlaces = saved; }
+    try { s = entry.fmt(entry.toMetric(1)); }
+    finally { settings.decimalPlaces = saved; exactFormat = savedExact; }
     const m = /^(-?[\d.,]+)\u00A0?(.+)$/.exec(s || "");
     if (!m) return null;
     const num = parseFloat(m[1].replace(/,/g, ""));
@@ -1137,6 +1140,26 @@
     const parts = s.split(".");
     parts[0] = groupInt(parts[0], sep);
     return (neg ? "-" : "") + (parts[1] ? parts[0] + "." + parts[1] : parts[0]);
+  }
+  // How many decimals to actually print. A tenth only earns its place while the
+  // value is small: from two integer digits up it is worth under a percent, and
+  // it costs three characters of width on text that has to fit where the
+  // original did (a size swatch on a retailer is barely wider than its label).
+  // So 91.44 cm reads "91 cm" and 30.48 cm reads "30 cm", while 1.8 m keeps its
+  // tenth, which is the digit that carries the value there.
+  //
+  // Applied at print time only, never to the scale scoring above, so which unit
+  // gets picked is unchanged. The worst rounding this can add is just under the
+  // 5% the engine already treats as faithful.
+  //
+  // Skipped entirely while exactFormat is set. unitBaseInfo() formats a value
+  // for the sole purpose of parsing the number back out to derive a unit's rate,
+  // and there a dropped decimal is not a shorter reading, it is a wrong answer.
+  const SHORT_DEC_FROM = 10;
+  let exactFormat = false;
+  function shortDec(v, maxDec) {
+    if (exactFormat) return maxDec;
+    return Math.abs(v) >= SHORT_DEC_FROM ? 0 : maxDec;
   }
   function betterScore(a, b) {
     if (!b) return true;
@@ -1183,7 +1206,7 @@
     }
     const sym = bestSym || fbSym || units[units.length - 1][0];
     const v = bestSym ? bestV : fbV;
-    return fmtNum(v, maxDec, sep) + "\u00A0" + sym;
+    return fmtNum(v, shortDec(v, maxDec), sep) + "\u00A0" + sym;
   }
   // --- end scale engine ----------------------------------------------------
 
@@ -2065,24 +2088,60 @@
   // underline); existing whitespace is left alone. Called from every insertion path.
   const NO_SPACE_AFTER = /[\s,.:;)\]}]/;
   const NO_SPACE_BEFORE = /[\s,.(\[{]/;
+  // The same two sets minus whitespace: punctuation that may hug the value even
+  // where a space is otherwise forced.
+  const HUGS_AFTER = /[,.:;)\]}]/;
+  const HUGS_BEFORE = /[,.(\[{]/;
+
+  // A flex or grid parent throws ordinary spaces away. A whitespace-only text
+  // node generates no item at all, and the anonymous items on either side of it
+  // have their edge whitespace trimmed. So on a control laid out that way (a
+  // size swatch on a large retailer, for one) neither the page's spacing nor
+  // ours renders, and "61 cm W x 30.5 cm H" comes out as "61 cmW x30.5 cmH".
+  //
+  // A no-break space is not collapsible whitespace, so it does generate an item
+  // and does render. It is used ONLY here: in ordinary text it would also stop
+  // the line from wrapping at that point, which is not wanted.
+  function dropsPlainSpaces(el) {
+    if (!el || el.nodeType !== Node.ELEMENT_NODE || !window.getComputedStyle) return false;
+    let cs;
+    try { cs = window.getComputedStyle(el); } catch (e) { return false; }
+    if (!cs || !/flex|grid/.test(cs.display || "")) return false;
+    // white-space: pre and friends keep the whitespace that is already there,
+    // so adding more would show two spaces.
+    return !/^pre/.test(cs.whiteSpace || "");
+  }
+
   function ensureSpacing(span) {
     if (!span || !span.parentNode) return;
-    const edgeChar = (node, which) => {
-      if (!node) return null;
-      const s = node.nodeType === Node.TEXT_NODE ? (node.nodeValue || "")
-        : node.nodeType === Node.ELEMENT_NODE ? (node.textContent || "") : "";
-      if (!s) return null;
-      return which === "first" ? s[0] : s[s.length - 1];
+    // The nearest character on one side of the span. When the parent drops plain
+    // spaces, whitespace-only siblings render as nothing, so they are skipped
+    // and the first character that actually shows is the one that counts.
+    const edgeChar = (dir, skipBlank) => {
+      let cur = dir === "next" ? span.nextSibling : span.previousSibling;
+      for (let i = 0; cur && i < 8; i++) {
+        const s = cur.nodeType === Node.TEXT_NODE ? (cur.nodeValue || "")
+          : cur.nodeType === Node.ELEMENT_NODE ? (cur.textContent || "") : "";
+        if (s.length) {
+          if (!skipBlank) return dir === "next" ? s[0] : s[s.length - 1];
+          const t = s.trim();
+          if (t) return dir === "next" ? t[0] : t[t.length - 1];
+        }
+        cur = dir === "next" ? cur.nextSibling : cur.previousSibling;
+      }
+      return null;
     };
-    const after = span.nextSibling;
-    const ac = edgeChar(after, "first");
-    if (ac && !NO_SPACE_AFTER.test(ac)) {
-      span.parentNode.insertBefore(document.createTextNode(" "), after);
+    const forced = dropsPlainSpaces(span.parentNode);
+    // The first literal below is U+00A0, a no-break space, not a plain space.
+    const gap = () => document.createTextNode(forced ? " " : " ");
+
+    const ac = edgeChar("next", forced);
+    if (ac && !HUGS_AFTER.test(ac) && (forced || !NO_SPACE_AFTER.test(ac))) {
+      span.parentNode.insertBefore(gap(), span.nextSibling);
     }
-    const before = span.previousSibling;
-    const bc = edgeChar(before, "last");
-    if (bc && !NO_SPACE_BEFORE.test(bc)) {
-      span.parentNode.insertBefore(document.createTextNode(" "), span);
+    const bc = edgeChar("prev", forced);
+    if (bc && !HUGS_BEFORE.test(bc) && (forced || !NO_SPACE_BEFORE.test(bc))) {
+      span.parentNode.insertBefore(gap(), span);
     }
   }
 

@@ -38,6 +38,31 @@ test.describe("baseline units", () => {
   });
 });
 
+test.describe("how many decimals", () => {
+  test.beforeEach(async ({ page }) => {
+    await loadFixture(page, "units.html");
+  });
+
+  test("drops the decimal once the value reaches two integer digits", async ({ page }) => {
+    // 18 in is 45.72 cm. A tenth there is under a percent and costs three
+    // characters, so it is not printed.
+    await expect(page.locator("#inches " + MARK)).toHaveText("46 cm");
+  });
+
+  test("keeps the decimal while the value is small", async ({ page }) => {
+    // The value and its unit are joined by a no-break space, so a regex has to
+    // match \s rather than a literal space (Playwright only normalizes
+    // whitespace for string comparisons, not for patterns).
+    // 5 lb is 2.268 kg: one integer digit, so the tenth is kept.
+    await expect(page.locator("#pounds " + MARK)).toHaveText(/^2\.3\skg$/);
+  });
+
+  test("drops it on a large value in another category", async ({ page }) => {
+    await expect(page.locator("#miles " + MARK)).toHaveText("19 km");
+    await expect(page.locator("#feet " + MARK)).toHaveText("366 m");
+  });
+});
+
 test.describe("axis-letter dimensions", () => {
   test.beforeEach(async ({ page }) => {
     await loadFixture(page, "swatches.html");
@@ -45,18 +70,18 @@ test.describe("axis-letter dimensions", () => {
 
   test("converts a size swatch written 36\"W x 18\"H", async ({ page }) => {
     await expect(page.locator("#sw1 " + MARK)).toHaveCount(2);
-    expect(await visibleText(page, "#sw1")).toBe("91.4 cm W x 45.7 cm H");
+    expect(await visibleText(page, "#sw1")).toBe("91 cm W x 46 cm H");
   });
 
   test("converts every axis of a three-axis size", async ({ page }) => {
     await expect(page.locator("#sw2 " + MARK)).toHaveCount(3);
-    expect(await visibleText(page, "#sw2")).toBe("91.4 cm L x 45.7 cm W x 10.2 cm D");
+    expect(await visibleText(page, "#sw2")).toBe("91 cm L x 46 cm W x 10 cm D");
   });
 
   test("handles lowercase axis letters", async ({ page }) => {
     await expect(page.locator("#lower " + MARK)).toHaveCount(2);
-    // 48 in is 1.2 m: the scale engine picks the reading with the fewest
-    // digits, so it does not stay in cm the way the smaller sizes do.
+    // 48 in is 1.2 m: the scale engine prefers the reading with the fewest
+    // integer digits, so it does not stay in cm the way smaller sizes do.
     expect(await visibleText(page, "#lower")).toBe("Panel size 1.2 m w x 61 cm h fits most windows.");
   });
 
@@ -65,6 +90,6 @@ test.describe("axis-letter dimensions", () => {
     const text = await visibleText(page, "#prose");
     expect(text).toContain(" W x ");
     expect(text).toContain(" H ");
-    expect(text).toBe("Choose the 1.8 m W x 91.4 cm H panel for a picture window.");
+    expect(text).toBe("Choose the 1.8 m W x 91 cm H panel for a picture window.");
   });
 });

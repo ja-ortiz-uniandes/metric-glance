@@ -14,6 +14,11 @@
     /* The same shape with a stretched link instead of an input, the other half
        of what Amazon renders. */
     .overlay-link { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    /* Amazon's swatch label is a flex container. That matters: a flex container
+       generates no item for a whitespace-only text node, and trims the edge
+       whitespace of the anonymous items around it, so an ordinary space
+       inserted next to a converted value does not render at all. */
+    .flex-label { display: flex; }
   </style>
 </head>
 <body>
@@ -35,6 +40,17 @@
       <span class="swatch">
         <span id="sw2" aria-hidden="true"> 36"L x 18"W x 4"D </span>
         <a class="overlay-link" href="#nope"></a>
+      </span>
+    </li>
+  </ul>
+
+  <!-- The real Amazon shape: the label is a flex container, so the spacing has
+       to be built from something a flex container does not throw away. -->
+  <ul class="swatches">
+    <li id="li3">
+      <span class="swatch">
+        <input type="submit" class="hit" aria-labelledby="sw3" />
+        <span id="sw3" class="flex-label" aria-hidden="true"> 24"W x 12"H </span>
       </span>
     </li>
   </ul>

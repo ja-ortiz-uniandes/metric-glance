@@ -16,6 +16,10 @@
     .swatches { list-style: none; display: flex; gap: 8px; padding: 0; margin: 0; }
     .swatch { position: relative; display: inline-block; border: 1px solid #c6cad3; border-radius: 6px; background: #fff; padding: 8px 10px; }
     .swatch-hit { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+    /* Amazon's swatch label is a flex container, which generates no item for a
+       whitespace-only text node, so an ordinary space next to a converted value
+       renders at zero width. */
+    .swatch-flex { display: flex; }
   </style>
 </head>
 <body>
@@ -128,13 +132,16 @@
       <li><span class="swatch"><input type="submit" class="swatch-hit" aria-labelledby="sw0" /><span id="sw0" aria-hidden="true"> 24"W x 12"H </span></span></li>
       <li><span class="swatch"><input type="submit" class="swatch-hit" aria-labelledby="sw1" /><span id="sw1" aria-hidden="true"> 36"W x 18"H </span></span></li>
       <li><span class="swatch"><input type="submit" class="swatch-hit" aria-labelledby="sw2" /><span id="sw2" aria-hidden="true"> 36"L x 18"W x 4"D </span></span></li>
+      <li><span class="swatch"><input type="submit" class="swatch-hit" aria-labelledby="sw3" /><span id="sw3" class="swatch-flex" aria-hidden="true"> 24"W x 12"H </span></span></li>
     </ul>
-    <p class="note">Two things at once, both taken from a real Amazon listing.
+    <p class="note">Three things at once, all taken from a real Amazon listing.
       The axis letter after the inch mark must not stop detection, so these
-      should read "91.4 cm W x 45.7 cm H". And the transparent
+      should read "91 cm W x 46 cm H". The transparent
       <code>&lt;input&gt;</code> covering each swatch carries no text of its own,
       so the Smart Picker has to climb out of it: pointing at a swatch must
-      outline it and offer its text, not report "no text there".</p>
+      outline it and offer its text, not report "no text there". And the last
+      swatch is a flex container, which discards ordinary spaces, so it must
+      still read "61 cm W x 30 cm H" and never "61 cmW x30 cmH".</p>
   </div>
 
   <h2>5. Dynamically added content (tests the live observer)</h2>

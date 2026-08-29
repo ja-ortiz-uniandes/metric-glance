@@ -275,7 +275,7 @@ No change to what data is collected or how it is shared. A rounding unit you pic
 
 ## v0.48.1
 
-Three fixes, all found on one real shopping page: a rounded price could lose the spacing around it, size swatches written the way retailers write them were never converted at all, and the Smart Picker could not pick text sitting behind an invisible click target.
+Fixes found on one real shopping page: converted values could lose the spacing around them, size swatches written the way retailers write them were never converted at all, the Smart Picker could not pick text sitting behind an invisible click target, and converted lengths carried a decimal that made them wider than the text they replaced.
 
 ### Rounding respects the page around it
 
@@ -283,7 +283,16 @@ Three fixes, all found on one real shopping page: a rounded price could lose the
 
 ### Sizes written with an axis letter
 
-- Retail listings put the axis straight after the unit mark: 36"W x 18"H, or 36"L x 18"W x 4"D for a three-axis size. The letter made the value fail a word-boundary check, so nothing on those size buttons ever converted. They now read 91.4 cm W x 45.7 cm H, keeping the axis letter, which is the page's own text and not ours to remove. Lowercase (48"w x 24"h) works too.
+- Retail listings put the axis straight after the unit mark: 36"W x 18"H, or 36"L x 18"W x 4"D for a three-axis size. The letter made the value fail a word-boundary check, so nothing on those size buttons ever converted. They now read 91 cm W x 46 cm H, keeping the axis letter, which is the page's own text and not ours to remove. Lowercase (48"w x 24"h) works too.
+
+### Spacing that survives the page's layout
+
+- On a control laid out with flex or grid, an ordinary space next to a converted value renders at zero width. Such a container generates no box at all for a text node made only of whitespace, and trims the edge whitespace off the text either side of it, so both the page's spacing and ours disappeared: a size swatch read "61 cmW x30 cmH". Where the layout works that way, the value is now set off with a no-break space, which is not collapsible whitespace and does render. Ordinary text still gets a plain space, so a line can go on wrapping between a value and the word after it.
+
+### Shorter values
+
+- A converted length no longer carries a decimal once it reaches two integer digits, where the tenth is worth under a percent: 91.44 cm reads "91 cm" and 30.48 cm reads "30 cm". This matters where the text has to fit in the space the original occupied, such as a size button barely wider than its label. Smaller values keep the decimal, since that is where it carries the value: 5 lb is still 2.3 kg, and 48" is still 1.2 m.
+- Which metric unit gets chosen is unchanged; only the number of decimals printed is. The hover panel still lists the other scales at full precision.
 
 ### Smart Picker reaches text behind a click target
 
@@ -292,7 +301,8 @@ Three fixes, all found on one real shopping page: a rounded price could lose the
 ### For maintainers
 
 - New Playwright test suite in `test/`, run by a new `ci.yml` workflow on every push to main and every pull request. It injects the content script into fixture pages built from the markup that actually broke, which is possible because the script falls back to default settings when no extension API is present. It covers detection, DOM rewriting, price rounding and the Smart Picker, in a real engine with real layout, since the picker is built on hit-testing that a fake DOM cannot provide. The manifest, the background page and the uploader are still verified by hand in Firefox. See `test/README.md`.
-- Each of the three fixes above was confirmed to be covered by reverting it and watching the suite fail.
+- Each of the fixes above was confirmed to be covered by reverting it and watching the suite fail.
+- The spacing tests assert on rendered geometry rather than on text, because that is the only thing that catches this class of bug: the space was present in the DOM the whole time and simply occupied no width.
 
 No change to what data is collected or how it is shared.
 
